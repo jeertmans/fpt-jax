@@ -1,0 +1,32 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: check-yaml
+  - id: check-toml
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+- repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+  rev: v2.15.0
+  hooks:
+  - id: pretty-format-yaml
+    args: [--autofix]
+  - id: pretty-format-toml
+    args: [--autofix, --trailing-commas]
+    exclude: Cargo.lock
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.13.3
+  hooks:
+  - id: ruff-check
+    args: [--fix]
+    types_or: [python, pyi]
+  - id: ruff-format
+    types_or: [python, pyi]
+- repo: https://github.com/RobertCraigie/pyright-python
+  rev: v1.1.406
+  hooks:
+  - id: pyright
+- repo: https://github.com/astral-sh/uv-pre-commit
+  rev: 0.8.23
+  hooks:
+  - id: uv-lock

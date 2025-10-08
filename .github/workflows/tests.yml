@@ -1,0 +1,27 @@
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+  workflow_dispatch:
+
+name: Tests
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        pyversion: ['3.10', '3.11', '3.12', '3.13']
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+
+    - name: Run pytest
+      run: uv run --python ${{ matrix.pyversion }} --locked pytest
