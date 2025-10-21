@@ -1,6 +1,6 @@
 # Fermat path-tracing with JAX
 
-[![arXiv](https://img.shields.io/badge/arXiv-1234.56789-b31b1b.svg)](https://arxiv.org/abs/1234.56789)
+[![arXiv](https://img.shields.io/badge/arXiv-2510.16172-b31b1b.svg)](https://arxiv.org/abs/2510.16172)
 
 `fpt-jax` is a standalone library for differentiable path-tracing using the Fermat principle, implemented with JAX.
 
@@ -73,12 +73,12 @@ If you use this library in your research, please cite our paper:
 
 ```bibtex
 @misc{eertmans2025fpt,
-  title        = {Fast, Differentiable, GPU-Accelerated Ray Tracing for Multiple Diffraction and Reflection Paths},
-  author       = {J\'{e}rome Eertmans and Sophie Lequeu and Beno\^{\i}t Legat and Laurent Jacques and Claude Oestges},
-  year         = 2025,
-  url          = {TODO},
-  eprint       = {TODO},
-  archiveprefix = {TODO},
-  primaryclass = {TODO}
+  title         = {Fast, Differentiable, GPU-Accelerated Ray Tracing for Multiple Diffraction and Reflection Paths},
+  author        = {Jérome Eertmans and Sophie Lequeu and Benoît Legat and Laurent Jacques and Claude Oestges},
+  year          = 2025,
+  url           = {https://arxiv.org/abs/2510.16172},
+  eprint        = {2510.16172},
+  archiveprefix = {arXiv},
+  primaryclass  = {eess.SP}
 }
 ```
