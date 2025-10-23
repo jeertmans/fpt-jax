@@ -1,18 +1,18 @@
 # Fermat path-tracing with JAX
 
-[![arXiv](https://img.shields.io/badge/arXiv-2510.16172-b31b1b.svg)](https://arxiv.org/abs/2510.16172)
+[![arXiv link][arxiv-badge]][arxiv-url]
+[![Latest Release][pypi-version-badge]][pypi-version-url]
+[![Python version][pypi-python-version-badge]][pypi-version-url]
 
 `fpt-jax` is a standalone library for differentiable path-tracing using the Fermat principle, implemented with JAX.
 
 ## Installation
 
-We do not upload releases to PyPI, but you can install the library directly from the GitHub repository:
+You can install this package from PyPI:
 
 ```bash
-pip install git+https://github.com/jeertmans/fpt-jax.git
+pip install fpt-jax
 ```
-
-If you want to install from a specific branch, tag, or commit, append `@<branch|tag|commit>` to the URL.
 
 ## Usage
 
@@ -82,3 +82,10 @@ If you use this library in your research, please cite our paper:
   primaryclass  = {eess.SP}
 }
 ```
+
+[arxiv-badge]: https://img.shields.io/badge/arXiv-2510.16172-b31b1b.svg
+[arxiv-url]: https://arxiv.org/abs/2510.16172
+[pypi-version-badge]: https://img.shields.io/pypi/v/fpt-jax?label=fpt-jax
+[pypi-version-url]: https://pypi.org/project/fpt-jax/
+[pypi-python-version-badge]: https://img.shields.io/pypi/pyversions/fpt-jax
+[pypi-download-badge]: https://img.shields.io/pypi/dm/fpt-jax

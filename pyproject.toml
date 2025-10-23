@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 
 [dependency-groups]
 cuda = [
@@ -21,14 +21,74 @@ tests = [
 authors = [
   {name = "Jérome Eertmans", email = "jeertmans@icloud.com"},
 ]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering",
+]
 dependencies = [
   "jax>=0.5.3",
 ]
 description = "Fermat path tracing with JAX"
+dynamic = ["readme", "version"]
+keywords = ["ray tracing", "differentiable", "propagation", "radio", "jax", "gpu"]
+license = "MIT"
 name = "fpt-jax"
-readme = "README.md"
 requires-python = ">=3.10"
-version = "0.1.0"
+
+[project.urls]
+Changelog = "https://github.com/jeertmans/fpt-jax/releases"
+Documentation = "https://github.com/jeertmans/fpt-jax"
+Founding = "https://github.com/sponsors/jeertmans"
+Homepage = "https://github.com/jeertmans/fpt-jax"
+Repository = "https://github.com/jeertmans/fpt-jax"
+
+[tool.bumpversion]
+allow_dirty = false
+commit = true
+commit_args = ""
+current_version = "0.1.0"
+ignore_missing_version = false
+message = "chore(deps): bump version from {current_version} to {new_version}"
+parse = '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(\.(?P<fix>\d+))?'
+regex = false
+replace = "{new_version}"
+search = "{current_version}"
+serialize = ["{major}.{minor}.{patch}.{fix}", "{major}.{minor}.{patch}"]
+sign_tags = false
+tag = false
+tag_message = "chore(version): {current_version} → {new_version}"
+tag_name = "v{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "src/fpt_jax/__version__.py"
+replace = '__version__ = "{new_version}"'
+search = '__version__ = "{current_version}"'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fpt_jax"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '> \[!([A-Z]+)\]'
+replacement = '> **\1:**'
+
+[tool.hatch.version]
+path = "src/fpt_jax/__version__.py"
 
 [tool.pyright]
 include = ["src/fpt_jax", "tests"]
