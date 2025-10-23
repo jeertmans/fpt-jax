@@ -26,7 +26,8 @@ This library implements a single function, `trace_rays`, which traces rays under
 &nbsp;&nbsp;&nbsp;`(tx: jax.Array, rx: jax.Array,`<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`object_origins: jax.Array, object_vectors: jax.Array, *,`<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`num_iters: int, unroll: int | bool = 1,`<br>
-&nbsp;&nbsp;&nbsp;&nbsp;`num_iters_linesearch: int = 1, unroll_linesearch: int | bool = 1) -> jax.Array:`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`num_iters_linesearch: int = 1, unroll_linesearch: int | bool = 1,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`implicit_diff: bool = True) -> jax.Array:`<br>
 
 Compute the points of interaction of rays with objects using Fermat's principle.
 
@@ -48,10 +49,15 @@ This function accepts batched inputs, where the leading dimensions must be broad
 &nbsp;&nbsp;&nbsp;&nbsp;`unroll_linesearch`: If an integer, the number of fixed-point iterations to unroll in the JAX [`scan`](https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html).<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `True`, unroll all iterations. If `False`, do not unroll.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`implicit_diff`: Whether to use implicit differentiation for computing the gradient.<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `True`, assumes that the solution has converged and applies the implicit function theorem to differentiate the optimization problem with respect to the input parameters: `tx`, `rx`, `object_origins`, and `object_vectors`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `True`, assumes that the solution has converged and applies the implicit function theorem<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to differentiate the optimization problem with respect to the input parameters:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`tx`, `rx`, `object_origins`, and `object_vectors`.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `False`, the gradient is computed by backpropagating through all iterations of the optimization algorithm.<br>
 <br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Using implicit differentiation is more memory- and computationally efficient, as it does not require storing intermediate values from all iterations, but it may be less accurate if the optimization has not fully converged. Moreover, implicit differentiation is not compatible with forward-mode autodiff in JAX.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Using implicit differentiation is more memory- and computationally efficient,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;as it does not require storing intermediate values from all iterations,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;but it may be less accurate if the optimization has not fully converged.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Moreover, implicit differentiation is not compatible with forward-mode autodiff in JAX.<br>
 
 **Returns:**<br>
 &nbsp;&nbsp;&nbsp;&nbsp;The points of interaction of shape `(..., num_interactions, 3)`.<br>
