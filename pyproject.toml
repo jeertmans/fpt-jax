@@ -8,6 +8,7 @@ cuda = [
 ]
 dev = [
   {include-group = "tests"},
+  "bump-my-version>=1.2.6",
 ]
 tests = [
   "chex>=0.1.90",
