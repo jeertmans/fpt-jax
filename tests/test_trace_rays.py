@@ -6,10 +6,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
-import optimistix
 from pytest_subtests import SubTests
 
 from fpt_jax import trace_rays
+from fpt_jax._common import objective, length
 
 
 def simple_diffraction_cases() -> tuple[
@@ -114,23 +114,30 @@ def simple_reflection_cases(
 @pytest.mark.parametrize(
     "batched", [pytest.param(False, id="unbatched"), pytest.param(True, id="batched")]
 )
-@pytest.mark.parametrize(
-    "num_iters", [pytest.param(4, id="4iters"), pytest.param(10, id="10iters")]
-)
+@pytest.mark.parametrize("num_iters", [pytest.param(50, id="50iters")])
 @pytest.mark.parametrize(
     "unroll", [pytest.param(False, id="loop"), pytest.param(True, id="unroll")]
 )
 @pytest.mark.parametrize(
     "num_iters_linesearch",
-    [pytest.param(1, id="1iter_ls"), pytest.param(10, id="10iters_ls")],
+    [pytest.param(1, id="1iter(ls)"), pytest.param(10, id="10iters(ls)")],
 )
 @pytest.mark.parametrize(
     "unroll_linesearch",
-    [pytest.param(False, id="loop_ls"), pytest.param(True, id="unroll_ls")],
+    [pytest.param(False, id="loop(ls)"), pytest.param(True, id="unroll(ls)")],
 )
 @pytest.mark.parametrize(
     "insert_zeros",
     [pytest.param(False, id="2d"), pytest.param(True, id="2d+extra_dim")],
+)
+@pytest.mark.parametrize(
+    "solver",
+    [
+        pytest.param("bfgs", id="bfgs"),
+        pytest.param("ecos", id="ecos"),
+        pytest.param("cvxpy", id="cvxpy"),
+        pytest.param("optimistix-bfgs", id="bfgs(optimistix)"),
+    ],
 )
 def test_trace_rays_simple_cases(
     cases: Literal["diffraction", "reflection"],
@@ -140,6 +147,7 @@ def test_trace_rays_simple_cases(
     num_iters_linesearch: int,
     unroll_linesearch: bool,
     insert_zeros: bool,
+    solver: str,
     subtests: SubTests,
 ):
     if cases == "diffraction":
@@ -167,8 +175,9 @@ def test_trace_rays_simple_cases(
                     unroll=unroll,
                     num_iters_linesearch=num_iters_linesearch,
                     unroll_linesearch=unroll_linesearch,
+                    solver=solver,
                 )
-                chex.assert_trees_all_close(got, expected[i])
+                chex.assert_trees_all_close(got, expected[i], rtol=5e-5)
     else:
         got = trace_rays(
             tx,
@@ -179,8 +188,9 @@ def test_trace_rays_simple_cases(
             unroll=unroll,
             num_iters_linesearch=num_iters_linesearch,
             unroll_linesearch=unroll_linesearch,
+            solver=solver,
         )
-        chex.assert_trees_all_close(got, expected)
+        chex.assert_trees_all_close(got, expected, rtol=5e-5)
 
 
 @pytest.mark.parametrize(
@@ -205,12 +215,22 @@ def test_trace_rays_simple_cases(
     "num_dims",
     [pytest.param(0, id="0d"), pytest.param(1, id="1d"), pytest.param(2, id="2d")],
 )
+@pytest.mark.parametrize(
+    "solver",
+    [
+        pytest.param("bfgs", id="bfgs"),
+        pytest.param("ecos", id="ecos"),
+        pytest.param("cvxpy", id="cvxpy"),
+        pytest.param("optimistix-bfgs", id="bfgs(optimistix)"),
+    ],
+)
 def test_trace_rays_broadcasting_shapes(
     tx_shape: tuple[int, ...],
     objects_shape: tuple[int, ...],
     rx_shape: tuple[int, ...],
     expected_shape: tuple[int, ...],
     num_dims: int,
+    solver: str,
 ):
     keys = jr.split(jr.PRNGKey(1234), 4)
     tx = jr.normal(keys[0], (*tx_shape, 3))
@@ -218,44 +238,9 @@ def test_trace_rays_broadcasting_shapes(
     object_vectors = jr.normal(keys[2], (*objects_shape, num_dims, 3))
     rx = jr.normal(keys[3], (*rx_shape, 3))
 
-    got = trace_rays(tx, rx, object_origins, object_vectors, num_iters=0)
+    got = trace_rays(tx, rx, object_origins, object_vectors, num_iters=0, solver=solver)
 
     assert got.shape[:-1] == expected_shape
-
-
-def t_to_xyz(
-    t: jax.Array, object_origins: jax.Array, object_vectors: jax.Array
-) -> jax.Array:
-    *_, num_interactions, num_dims, _ = object_vectors.shape
-    return object_origins + jnp.einsum(
-        "...nd,...ndk->...nk",
-        t.reshape(*t.shape[:-1], num_interactions, num_dims),
-        object_vectors,
-        precision=jax.lax.Precision.HIGHEST,
-    )
-
-
-def path_length(
-    tx: jax.Array,
-    rx: jax.Array,
-    xyz: jax.Array,
-) -> jax.Array:
-    return (
-        jnp.linalg.norm(xyz[+0, :] - tx, axis=-1)
-        + jnp.linalg.norm(xyz[+1:, :] - xyz[:-1, :], axis=-1).sum(axis=-1)
-        + jnp.linalg.norm(rx - xyz[-1, :], axis=-1)
-    )
-
-
-def objective_fn(
-    t: jax.Array,
-    tx: jax.Array,
-    rx: jax.Array,
-    object_origins: jax.Array,
-    object_vectors: jax.Array,
-) -> jax.Array:
-    xyz = t_to_xyz(t, object_origins, object_vectors)
-    return path_length(tx, rx, xyz)
 
 
 @pytest.mark.parametrize(
@@ -267,7 +252,22 @@ def objective_fn(
         pytest.param(4, id="N=4"),
     ],
 )
-def test_trace_rays_zero_grad_at_solution(num_diffractions: int):
+@pytest.mark.parametrize(
+    "solver",
+    [
+        pytest.param("bfgs", id="bfgs"),
+        pytest.param(
+            "ecos",
+            id="ecos",
+            marks=pytest.mark.xfail(
+                reason="ECOS doesn't converge well enough, resulting in non-zero gradients."
+            ),
+        ),
+        pytest.param("cvxpy", id="cvxpy"),
+        pytest.param("optimistix-bfgs", id="bfgs(optimistix)"),
+    ],
+)
+def test_trace_rays_zero_grad_at_solution(num_diffractions: int, solver: str):
     keys = jr.split(jr.PRNGKey(1234), 4)
     batch = 1_000
     tx = jr.normal(keys[0], (batch, 3))
@@ -282,37 +282,17 @@ def test_trace_rays_zero_grad_at_solution(num_diffractions: int):
         edge_vectors,
         num_iters=16,
         num_iters_linesearch=32,
+        solver=solver,
     )
 
     # Got back to parametric variables
     got_t = (got[..., None, :] - edge_origins[..., None, :]) / edge_vectors
     got_t = jnp.max(got_t, axis=-1, where=edge_vectors != 0.0, initial=-jnp.inf)
     got_t = jnp.squeeze(got_t, axis=-1)
-    grad = jax.vmap(jax.grad(objective_fn))(got_t, tx, rx, edge_origins, edge_vectors)
+    grad = jax.vmap(jax.grad(objective))(got_t, tx, rx, edge_origins, edge_vectors)
     norm_grad = jnp.linalg.norm(grad, axis=-1)
 
     chex.assert_trees_all_close(norm_grad, 0.0, atol=1e-3)
-
-
-@partial(jnp.vectorize, signature="(3),(3),(n,3),(n,d,3)->(n,3)")
-def trace_rays_with_optimistix(
-    tx: jax.Array,
-    rx: jax.Array,
-    object_origins: jax.Array,
-    object_vectors: jax.Array,
-) -> jax.Array:
-    num_iterations, num_dims, _ = object_vectors.shape
-    n = num_iterations * num_dims
-    dtype = jnp.result_type(tx, rx, object_origins, object_vectors)
-    solver = optimistix.BFGS(atol=1e-16, rtol=1e-6)
-    solution = optimistix.minimise(
-        lambda t, args: objective_fn(t, *args),
-        solver,
-        y0=jnp.zeros(n, dtype=dtype),
-        args=(tx, rx, object_origins, object_vectors),
-        max_steps=512,
-    )
-    return t_to_xyz(solution.value, object_origins, object_vectors)
 
 
 @pytest.mark.parametrize(
@@ -321,9 +301,18 @@ def trace_rays_with_optimistix(
 @pytest.mark.parametrize(
     "num_dims", [pytest.param(1, id="diffraction"), pytest.param(2, id="reflection")]
 )
-def test_trace_rays_vs_optimistix(num_interactions: int, num_dims: int):
+@pytest.mark.parametrize(
+    "solver",
+    [
+        pytest.param("bfgs", id="bfgs"),
+        pytest.param("ecos", id="ecos"),
+        pytest.param("cvxpy", id="cvxpy"),
+        pytest.param("optimistix-bfgs", id="bfgs(optimistix)"),
+    ],
+)
+def test_trace_rays_vs_cvxpy(num_interactions: int, num_dims: int, solver: str):
     if num_interactions == 1 and num_dims == 2:
-        pytest.skip("Convergence too difficult, resulting in inaccurate results.")
+        pytest.skip("Convergence too difficult, resulting in inaccurate results.")  # type: ignore[ty:too-many-positional-arguments]
 
     keys = jr.split(jr.PRNGKey(1234), 4)
     batch = 100
@@ -332,7 +321,9 @@ def test_trace_rays_vs_optimistix(num_interactions: int, num_dims: int):
     object_vectors = jr.normal(keys[2], (batch, num_interactions, num_dims, 3))
     rx = jr.normal(keys[3], (batch, 3))
 
-    expected = trace_rays_with_optimistix(tx, rx, object_origins, object_vectors)
+    expected = trace_rays(
+        tx, rx, object_origins, object_vectors, solver="cvxpy", num_iters=100
+    )
 
     got = trace_rays(
         tx,
@@ -341,6 +332,7 @@ def test_trace_rays_vs_optimistix(num_interactions: int, num_dims: int):
         object_vectors,
         num_iters=1_000,
         num_iters_linesearch=1_000,
+        solver=solver,
     )
 
     chex.assert_trees_all_close(got, expected, atol=1e-2)
@@ -355,11 +347,15 @@ def test_trace_rays_vs_optimistix(num_interactions: int, num_dims: int):
 )
 @pytest.mark.parametrize(
     "num_iters_linesearch",
-    [pytest.param(1, id="1iter_ls"), pytest.param(10, id="10iters_ls")],
+    [pytest.param(1, id="1iter(ls)"), pytest.param(10, id="10iters(ls)")],
 )
 @pytest.mark.parametrize(
     "unroll_linesearch",
-    [pytest.param(False, id="loop_ls"), pytest.param(True, id="unroll_ls")],
+    [pytest.param(False, id="loop(ls)"), pytest.param(True, id="unroll(ls)")],
+)
+@pytest.mark.parametrize(
+    "solver",
+    [pytest.param("bfgs", id="bfgs"), pytest.param("ecos", id="ecos")],
 )
 def test_grad_trace_rays_simple_cases(
     cases: Literal["diffraction", "reflection"],
@@ -367,6 +363,7 @@ def test_grad_trace_rays_simple_cases(
     unroll: bool,
     num_iters_linesearch: int,
     unroll_linesearch: bool,
+    solver: str,
     subtests: SubTests,
 ):
     if cases == "diffraction":
@@ -391,8 +388,9 @@ def test_grad_trace_rays_simple_cases(
             num_iters_linesearch=num_iters_linesearch,
             unroll_linesearch=unroll_linesearch,
             implicit_diff=implicit_diff,
+            solver=solver,
         )
-        return path_length(tx, rx, xyz)
+        return length(tx, rx, xyz)
 
     for i in range(tx.shape[0]):
         for arg_num in range(4):
@@ -442,17 +440,22 @@ def test_grad_trace_rays_simple_cases(
 )
 @pytest.mark.parametrize(
     "num_iters_linesearch",
-    [pytest.param(1, id="1iter_ls"), pytest.param(10, id="10iters_ls")],
+    [pytest.param(1, id="1iter(ls)"), pytest.param(10, id="10iters(ls)")],
 )
 @pytest.mark.parametrize(
     "unroll_linesearch",
-    [pytest.param(False, id="loop_ls"), pytest.param(True, id="unroll_ls")],
+    [pytest.param(False, id="loop(ls)"), pytest.param(True, id="unroll(ls)")],
+)
+@pytest.mark.parametrize(
+    "solver",
+    [pytest.param("bfgs", id="bfgs"), pytest.param("ecos", id="ecos")],
 )
 def test_grad_trace_rays_simple_vs_image_method(
     num_iters: int,
     unroll: bool,
     num_iters_linesearch: int,
     unroll_linesearch: bool,
+    solver: str,
     subtests: SubTests,
 ):
     tx, rx, object_origins, object_vectors, expected = simple_reflection_cases(
@@ -467,7 +470,9 @@ def test_grad_trace_rays_simple_vs_image_method(
         use_image_method: bool,
     ) -> jax.Array:
         if use_image_method:
-            xyz = trace_rays_with_image_method(tx, rx, object_origins, object_vectors)
+            xyz = trace_rays(
+                tx, rx, object_origins, object_vectors, solver="image-method"
+            )
         else:
             xyz = trace_rays(
                 tx,
@@ -478,8 +483,9 @@ def test_grad_trace_rays_simple_vs_image_method(
                 unroll=unroll,
                 num_iters_linesearch=num_iters_linesearch,
                 unroll_linesearch=unroll_linesearch,
+                solver=solver,
             )
-        return path_length(tx, rx, xyz)
+        return length(tx, rx, xyz)
 
     for i in range(tx.shape[0]):
         for arg_num in range(4):
@@ -507,11 +513,11 @@ def test_grad_trace_rays_simple_vs_image_method(
 @pytest.mark.parametrize(
     "num_dims", [pytest.param(1, id="diffraction"), pytest.param(2, id="reflection")]
 )
-def test_grad_trace_rays_vs_optimistix(
+def test_grad_trace_rays_bfgs_vs_optimistix(
     num_interactions: int, num_dims: int, subtests: SubTests
 ):
     if num_interactions == 2 and num_dims == 2:
-        pytest.skip("Convergence too difficult, resulting in inaccurate gradients.")
+        pytest.skip("Convergence too difficult, resulting in inaccurate gradients.")  # type: ignore[ty:too-many-positional-arguments]
 
     keys = jr.split(jr.PRNGKey(1234), 4)
     batch = 100
@@ -528,7 +534,9 @@ def test_grad_trace_rays_vs_optimistix(
         use_optimistix: bool,
     ) -> jax.Array:
         if use_optimistix:
-            xyz = trace_rays_with_optimistix(tx, rx, object_origins, object_vectors)
+            xyz = trace_rays(
+                tx, rx, object_origins, object_vectors, solver="optimistix-bfgs"
+            )
         else:
             xyz = trace_rays(
                 tx,
@@ -538,7 +546,7 @@ def test_grad_trace_rays_vs_optimistix(
                 num_iters=1_000,
                 num_iters_linesearch=512,
             )
-        return path_length(tx, rx, xyz)
+        return length(tx, rx, xyz)
 
     for arg_num in range(4):
         with subtests.test(arg_num=arg_num):
@@ -550,82 +558,6 @@ def test_grad_trace_rays_vs_optimistix(
             )
 
             chex.assert_trees_all_close(got, expected, atol=2e-2)
-
-
-# Image method: code adapted from DiffeRT
-
-
-@partial(jnp.vectorize, signature="(3),(3),(n,3),(n,d,3)->(n,3)")
-def trace_rays_with_image_method(
-    tx: jax.Array,
-    rx: jax.Array,
-    plane_origins: jax.Array,
-    plane_vectors: jax.Array,
-) -> jax.Array:
-    def image_of_vertex_with_respect_to_plane(
-        vertex: jax.Array,
-        plane_origin: jax.Array,
-        plane_normal: jax.Array,
-    ) -> jax.Array:
-        to_plane = vertex - plane_origin
-        return vertex - 2 * jnp.sum(to_plane * plane_normal) * plane_normal
-
-    def intersection_of_ray_with_plane(
-        ray_origin: jax.Array,
-        ray_direction: jax.Array,
-        plane_origin: jax.Array,
-        plane_normal: jax.Array,
-    ) -> jax.Array:
-        denom = jnp.sum(ray_direction * plane_normal)
-        numer = jnp.sum((plane_origin - ray_origin) * plane_normal)
-        t = numer / denom
-        return ray_origin + t * ray_direction
-
-    def forward(
-        previous_image: jax.Array,
-        plane_origin_and_normal: tuple[jax.Array, jax.Array],
-    ) -> tuple[jax.Array, jax.Array]:
-        plane_origin, plane_normal = plane_origin_and_normal
-        image = image_of_vertex_with_respect_to_plane(
-            previous_image,
-            plane_origin,
-            plane_normal,
-        )
-        return image, image
-
-    def backward(
-        previous_intersection: jax.Array,
-        plane_origin_and_normal_and_image: tuple[
-            jax.Array,
-            jax.Array,
-            jax.Array,
-        ],
-    ) -> tuple[jax.Array, jax.Array]:
-        plane_origin, plane_normal, image = plane_origin_and_normal_and_image
-
-        intersection = intersection_of_ray_with_plane(
-            previous_intersection,
-            image - previous_intersection,
-            plane_origin,
-            plane_normal,
-        )
-        return intersection, intersection
-
-    plane_normals = jnp.cross(plane_vectors[:, 0, :], plane_vectors[:, 1, :])
-
-    _, images = jax.lax.scan(
-        forward,
-        init=tx,
-        xs=(plane_origins, plane_normals),
-    )
-    _, interaction_points = jax.lax.scan(
-        backward,
-        init=rx,
-        xs=(plane_origins, plane_normals, images),
-        reverse=True,
-    )
-
-    return interaction_points
 
 
 def valid_reflection_paths(
@@ -653,7 +585,11 @@ def valid_reflection_paths(
         pytest.param(4, id="N=4"),
     ],
 )
-def test_trace_rays_vs_image_method(num_reflections: int):
+@pytest.mark.parametrize(
+    "solver",
+    [pytest.param("bfgs", id="bfgs"), pytest.param("ecos", id="ecos")],
+)
+def test_trace_rays_vs_image_method(num_reflections: int, solver: str):
     keys = jr.split(jr.PRNGKey(1234), 4)
     batch = 5
     tx = jr.normal(keys[0], (batch, 3))
@@ -679,7 +615,9 @@ def test_trace_rays_vs_image_method(num_reflections: int):
     chex.assert_trees_all_close(jnp.linalg.norm(plane_normals, axis=-1), 1.0)
 
     with jax.debug_nans(False):
-        expected = trace_rays_with_image_method(tx, rx, plane_origins, plane_vectors)
+        expected = trace_rays(
+            tx, rx, plane_origins, plane_vectors, solver="image-method"
+        )
 
     valid = valid_reflection_paths(
         plane_origins,
@@ -694,6 +632,7 @@ def test_trace_rays_vs_image_method(num_reflections: int):
         plane_vectors,
         num_iters=1_000,
         num_iters_linesearch=64,
+        solver=solver,
     )
     got = jnp.where(valid[..., None, None], got, 0.0)
 

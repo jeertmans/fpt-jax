@@ -3,16 +3,25 @@ build-backend = "hatchling.build"
 requires = ["hatchling", "hatch-fancy-pypi-readme"]
 
 [dependency-groups]
+benchmarks = [
+  "differt>=0.5.0",
+  "fpt-jax[cvxpy,optimistix]",
+  "matplotlib>=3.10.8",
+  "tqdm>=4.67.3",
+]
 cuda = [
   "jax[cuda]>=0.5.3",
 ]
 dev = [
+  {include-group = "benchmarks"},
   {include-group = "tests"},
   "bump-my-version>=1.2.6",
+  "ipython>=8.39.0",
+  "ty>=0.0.29",
 ]
 tests = [
+  "fpt-jax[cvxpy,optimistix]",
   "chex>=0.1.90",
-  "optimistix>=0.0.10",
   "pytest>=8.4.2",
   "pytest-env>=1.2.0",
   "pytest-subtests>=0.14.2",
@@ -42,6 +51,16 @@ keywords = ["ray tracing", "differentiable", "propagation", "radio", "jax", "gpu
 license = "MIT"
 name = "fpt-jax"
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+cvxpy = [
+  "cvxpy>=1.7.5",
+  "numpy>=2.2.6",
+]
+optimistix = [
+  "lineax>=0.1.0",
+  "optimistix>=0.0.11",
+]
 
 [project.urls]
 Changelog = "https://github.com/jeertmans/fpt-jax/releases"
