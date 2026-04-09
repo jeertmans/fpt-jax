@@ -22,11 +22,15 @@ repos:
     types_or: [python, pyi]
   - id: ruff-format
     types_or: [python, pyi]
-- repo: https://github.com/RobertCraigie/pyright-python
-  rev: v1.1.406
-  hooks:
-  - id: pyright
 - repo: https://github.com/astral-sh/uv-pre-commit
   rev: 0.8.23
   hooks:
   - id: uv-lock
+- repo: local
+  hooks:
+  - id: ty
+    name: typecheck
+    description: Typecheck Python files with ty
+    language: system
+    entry: uv run ty check  # TODO: find pre-commit hook for this
+    pass_filenames: false
