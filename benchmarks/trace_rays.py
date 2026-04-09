@@ -162,12 +162,11 @@ def _run_trace_rays(
 
 
 def _parse_args() -> argparse.Namespace:
-    default_batch = 128 if jax.default_backend() == "gpu" else 64
     parser = argparse.ArgumentParser(description="Benchmark `trace_rays` solvers")
     parser.add_argument(
         "--batch",
         type=int,
-        default=default_batch,
+        default=512,
         help="Batch size per benchmark case.",
     )
     parser.add_argument(
@@ -193,7 +192,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ref-iters",
         type=int,
-        default=50,
+        default=500,
         help="Number of iterations used for the non-image reference solution.",
     )
     parser.add_argument(
@@ -380,7 +379,9 @@ def main():
     )
     total_tasks = total_solver_tasks + total_ref_tasks
 
-    fig, axes = plt.subplots(len(scenarios), len(ns), figsize=(16, 12), sharey="row")
+    fig, axes = plt.subplots(
+        len(scenarios), len(ns), figsize=(16, 3 * len(scenarios)), sharey="row"
+    )
     if not isinstance(axes, np.ndarray):
         axes = np.array([[axes]], dtype=object)
     elif axes.ndim == 1:
@@ -389,7 +390,8 @@ def main():
         else:
             axes = axes[:, np.newaxis]
 
-    pbar = tqdm(total=total_tasks, desc="Benchmark progress", unit="task")
+    platform = jax.default_backend().upper()
+    pbar = tqdm(total=total_tasks, desc=f"[{platform}] Benchmark progress", unit="task")
 
     for row, (p_reflect, num_dims) in enumerate(scenarios):
         scenario_results = run_benchmark(
@@ -441,11 +443,15 @@ def main():
                 ax.set_ylabel("Average error on X*")
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=4, frameon=True)
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.94))
+    precision = "f64" if jnp.ones(()).dtype == jnp.float64 else "f32"
+    fig.suptitle(f"Trace Rays Benchmark ({platform}, {precision})")
+    fig.legend(handles, labels, loc="upper right", ncol=4, frameon=True)
+    fig.tight_layout()
     pbar.close()
 
-    out_path = Path("benchmarks") / "trace_rays_benchmark.png"
+    out_path = (
+        Path("benchmarks") / f"trace_rays_benchmark_{platform.lower()}_{precision}.png"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(out_path), dpi=200)
 
