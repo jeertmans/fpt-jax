@@ -1,0 +1,82 @@
+# Hand-crafted benchmark path-tracing test cases, from simple single-interaction
+# paths to small cascaded reflection/diffraction/transmission combinations.
+
+[[testcase]]
+name = "single_reflection"
+description = "One specular reflection off the ground plane z=0."
+tx = [0, 0, 4]
+rx = [4, 0, 4]
+object_origins = [[0, 0, 0]]
+object_vectors = [[[1, 0, 0], [0, 1, 0]]]
+interaction_list = [0]
+expected_path = [[2, 0, 0]]
+
+[[testcase]]
+name = "single_diffraction"
+description = "One diffraction over a knife edge along the x-axis."
+tx = [0, 0, 4]
+rx = [4, 4, 0]
+object_origins = [[0, 0, 0]]
+object_vectors = [[[1, 0, 0]]]
+interaction_list = [1]
+expected_path = [[2, 0, 0]]
+
+[[testcase]]
+name = "single_transmission"
+description = "Straight-through transmission across the plane z=0 (tx/rx on opposite sides)."
+tx = [0, 0, 4]
+rx = [4, 0, -4]
+object_origins = [[0, 0, 0]]
+object_vectors = [[[1, 0, 0], [0, 1, 0]]]
+interaction_list = [2]
+expected_path = [[2, 0, 0]]
+
+[[testcase]]
+name = "double_reflection_corner"
+description = "Dihedral corner reflector: bounce off wall x=0 then off wall y=0."
+tx = [2, 4, 1]
+rx = [5, 3, -1]
+object_origins = [[0, 0, 0], [0, 0, 0]]
+object_vectors = [[[0, 1, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]]]
+interaction_list = [0, 0]
+expected_path = [[0, 2, 0.428571428571], [2, 0, -0.142857142857]]
+
+[[testcase]]
+name = "double_diffraction"
+description = "Cascaded diffraction over two parallel knife edges along the x-axis."
+tx = [0, -2, 3]
+rx = [0, 8, 3]
+object_origins = [[0, 0, 0], [0, 4, 0]]
+object_vectors = [[[1, 0, 0]], [[1, 0, 0]]]
+interaction_list = [1, 1]
+expected_path = [[0, 0, 0], [0, 4, 0]]
+
+[[testcase]]
+name = "triple_diffraction"
+description = "Cascaded diffraction over three parallel knife edges along the x-axis."
+tx = [0, -3, 3]
+rx = [4, 9, 3]
+object_origins = [[0, 0, 0], [0, 3, 0], [0, 6, 0]]
+object_vectors = [[[1, 0, 0]], [[1, 0, 0]], [[1, 0, 0]]]
+interaction_list = [1, 1, 1]
+expected_path = [[1.1715728752538097, 0, 0], [2, 3, 0], [2.8284271247461903, 6, 0]]
+
+[[testcase]]
+name = "reflection_then_diffraction"
+description = "Ground-bounce reflection followed by diffraction over a rooftop edge (edge vector zero-padded to match num_dims=2)."
+tx = [0, -2, 2]
+rx = [10, 3, 1]
+object_origins = [[0, 0, 0], [5, 0, 5]]
+object_vectors = [[[1, 0, 0], [0, 1, 0]], [[0, 1, 0], [0, 0, 0]]]
+interaction_list = [0, 1]
+expected_path = [[1.42857142857, -1.18102845955, 0], [5, 0.866400391563, 5]]
+
+[[testcase]]
+name = "diffraction_then_transmission"
+description = "Diffraction over a rooftop edge followed by straight-through transmission across a wall."
+tx = [-6, -4, 2]
+rx = [12, 5, 8]
+object_origins = [[0, 0, 5], [6, 0, 0]]
+object_vectors = [[[0, 1, 0], [0, 0, 0]], [[0, 1, 0], [0, 0, 1]]]
+interaction_list = [1, 2]
+expected_path = [[0, -0.83534165703, 5], [6, 2.08232917148, 6.5]]

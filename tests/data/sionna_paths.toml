@@ -1,0 +1,263 @@
+# Benchmark path-tracing test cases extracted from Sionna RT (https://nvlabs.github.io/sionna/rt/)
+# built-in city scenes, covering realistic multi-bounce reflection, diffraction,
+# and transmission paths. Regenerate with `pytest --generate-sionna-dataset`.
+#
+# For each Sionna scene, `sionna.rt.PathSolver` was run with reflection,
+# diffraction (incl. free-edge diffraction), and refraction/transmission all
+# enabled. For every valid, non-line-of-sight path found, the hit geometry
+# (mesh face, for reflection/transmission; mesh edge, for diffraction) was
+# reconstructed as an (origin, vectors) pair in the same convention as
+# `tests/data/simple_paths.toml`, and cross-validated against the physical laws
+# governing each interaction type (law of reflection, Keller's law of diffraction,
+# and transmission/refraction across interfaces). This makes each case an
+# independent check based on physics laws on realistic building/street geometry,
+# not just on synthetic examples.
+#
+# One example test case per distinct interaction-type sequence (up to 3 bounces)
+# was kept per scene; see `description` for the originating scene/scenario and
+# the objects involved. See `tests/data/simple_paths.toml` for the field schema.
+#
+# Note: transmission through a slab (e.g. window glass) naturally produces two
+# consecutive "transmission" interactions (entry and exit face of the slab).
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__refl_diff"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): reflection -> diffraction path (objects: no-name-2, no-name-1)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-15.11900997, 9.571563721, -0.03079414368], [62.64027405, -8.613334656, -0.03079414368]]
+object_vectors = [[[31.12150955, 0, 50.97460175], [31.12150955, 0, 0]], [[0, 0, 29.12834549], [0, 0, 0]]]
+interaction_list = [0, 1]
+expected_path = [[8.49886322, 9.571563721, 11.92391205], [62.64027405, -8.613334656, 6.0799613]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__refl_diff_refl"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): reflection -> diffraction -> reflection path (objects: no-name-2, building_6, no-name-2)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-15.11900997, 9.571563721, -0.03079414368], [16.00249863, -8.613334656, 50.94380951], [-15.11900997, 9.571563721, -0.03079414368]]
+object_vectors = [[[0, 0, 50.97460175], [31.12150955, 0, 50.97460175]], [[-31.12150955, 0, 0], [0, 0, 0]], [[31.12150955, 0, 50.97460175], [31.12150955, 0, 0]]]
+interaction_list = [0, 1, 0]
+expected_path = [[-13.72579575, 9.571563721, 27.39548683], [-1.806015849, -8.613334656, 50.94380951], [15.61931419, 9.571563721, 11.43294334]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__tran_tran_diff"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): transmission -> transmission -> diffraction path (objects: building_6, building_6, no-name-1)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[16.00249863, -8.613334656, -0.03079414368], [16.00249863, -36.49964142, -0.03079414368], [31.51876831, -36.49964142, 29.09755135]]
+object_vectors = [[[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]], [[0, 27.88630676, 50.97460175], [0, 27.88630676, 0]], [[0, 0, -29.12834549], [0, 0, 0]]]
+interaction_list = [2, 2, 1]
+expected_path = [[-7.843005657, -8.613334656, 13.10616016], [16.00249863, -25.50771523, 9.391487122], [31.51876831, -36.49964142, 6.974478722]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__diff"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): diffraction path (objects: no-name-1)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-62.10765076, -8.613334656, 21.81546021]]
+object_vectors = [[[0, 0, -21.84625435]]]
+interaction_list = [1]
+expected_path = [[-62.10765076, -8.613334656, 10.40263844]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__diff_refl_refl"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): diffraction -> reflection -> reflection path (objects: no-name-1, no-name-2, building_6)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-30.98614502, -8.613334656, 21.81546021], [-15.11900997, 9.571563721, -0.03079414368], [16.00249863, -8.613334656, -0.03079414368]]
+object_vectors = [[[0, 0, -21.84625435], [0, 0, 0]], [[0, 0, 50.97460175], [31.12150955, 0, 50.97460175]], [[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]]]
+interaction_list = [1, 0, 0]
+expected_path = [[-30.98614502, -8.613334656, 12.79214668], [-12.43644047, 9.571563721, 8.683854103], [6.113408089, -8.613334656, 4.575530529]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__diff_refl"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): diffraction -> reflection path (objects: no-name-1, floor)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[62.64027405, -8.613334656, -0.03079414368], [-93.96609497, 60.80762863, -0.03079414368]]
+object_vectors = [[[0, 0, 29.12834549], [0, 0, 0]], [[186.3928528, 0, 0], [186.3928528, -121.1381836, 0]]]
+interaction_list = [1, 0]
+expected_path = [[62.64027405, -8.613334656, 4.236739635], [31.25803947, 1.405756116, -0.03079414368]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__refl_refl_refl"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): reflection -> reflection -> reflection path (objects: building_6, no-name-2, building_6)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[16.00249863, -8.613334656, -0.03079414368], [-15.11900997, 9.571563721, -0.03079414368], [16.00249863, -8.613334656, -0.03079414368]]
+object_vectors = [[[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]], [[31.12150955, 0, 50.97460175], [31.12150955, 0, 0]], [[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]]]
+interaction_list = [0, 0, 0]
+expected_path = [[-14.12030411, -8.613334656, 13.01560307], [-1.706656575, 9.571563721, 8.825998306], [10.70700645, -8.613334656, 4.636385441]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__refl_refl_diff"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): reflection -> reflection -> diffraction path (objects: building_6, no-name-2, no-name-1)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[16.00249863, -8.613334656, -0.03079414368], [-15.11900997, 9.571563721, -0.03079414368], [31.51876831, -8.613334656, 29.09755135]]
+object_vectors = [[[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]], [[31.12150955, 0, 50.97460175], [31.12150955, 0, 0]], [[0, 0, -29.12834549], [0, 0, 0]]]
+interaction_list = [0, 0, 1]
+expected_path = [[-10.13527298, -8.613334656, 12.94961452], [10.69185829, 9.571563721, 8.620697975], [31.51876831, -8.613334656, 4.291974545]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__refl"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): reflection path (objects: floor)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-93.96609497, 60.80762863, -0.03079414368]]
+object_vectors = [[[186.3928528, 0, 0], [186.3928528, -121.1381836, 0]]]
+interaction_list = [0]
+expected_path = [[16.30275154, 4.537844658, -0.03079414368]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__refl_refl"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): reflection -> reflection path (objects: no-name-2, floor)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-15.11900997, 9.571563721, -0.03079414368], [-93.96609497, 60.80762863, -0.03079414368]]
+object_vectors = [[[31.12150955, 0, 50.97460175], [31.12150955, 0, 0]], [[186.3928528, 0, 0], [186.3928528, -121.1381836, 0]]]
+interaction_list = [0, 0]
+expected_path = [[7.070473671, 9.571563721, 3.791820049], [16.30276108, 6.30725956, -0.03079414368]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__tran_refl_tran"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): transmission -> reflection -> transmission path (objects: no-name-2, no-name-2, no-name-2)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-15.11900997, 9.571563721, -0.03079414368], [16.00249863, 37.45787048, -0.03079414368], [16.00249863, 9.571563721, -0.03079414368]]
+object_vectors = [[[0, 0, 50.97460175], [31.12150955, 0, 50.97460175]], [[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]], [[0, 27.88630676, 50.97460175], [0, 27.88630676, 0]]]
+interaction_list = [2, 0, 2]
+expected_path = [[-14.52400208, 9.571563721, 13.15184784], [1.430148363, 37.45787048, 7.76731348], [16.00249863, 11.98728371, 2.849171877]]
+
+[[testcase]]
+name = "simple_street_canyon__los_reflection__diff_tran_tran"
+description = "Sionna RT scene 'simple_street_canyon' (los_reflection): diffraction -> transmission -> transmission path (objects: no-name-1, building_6, building_6)."
+source_scene = "simple_street_canyon"
+tx = [-20, 0, 15]
+rx = [20, 5, 1.5]
+object_origins = [[-30.98614502, -36.49964142, -0.03079414368], [-15.11900997, -8.613334656, -0.03079414368], [16.00249863, -8.613334656, -0.03079414368]]
+object_vectors = [[[0, 0, 21.84625435], [0, 0, 0]], [[0, -27.88630676, 50.97460175], [0, -27.88630676, 0]], [[-31.12150955, 0, 50.97460175], [-31.12150955, 0, 0]]]
+interaction_list = [1, 2, 2]
+expected_path = [[-30.98614502, -36.49964142, 10.04531384], [-15.11901093, -23.58490562, 7.385997295], [3.274833202, -8.613334656, 4.303162098]]
+
+[[testcase]]
+name = "simple_street_canyon__corner_diffraction__tran_diff_tran"
+description = "Sionna RT scene 'simple_street_canyon' (corner_diffraction): transmission -> diffraction -> transmission path (objects: no-name-3, no-name-4, building_2)."
+source_scene = "simple_street_canyon"
+tx = [-40, -20, 8]
+rx = [40, 25, 1.5]
+object_origins = [[-30.98614502, -36.49964142, -0.03079414368], [16.00249863, 9.571563721, 50.94380951], [32.35660553, 38.22360229, -0.03079414368]]
+object_vectors = [[[0, 27.88630676, 21.84625435], [0, 27.88630676, 0]], [[0, 0, -50.97460175], [0, 0, 0]], [[0, -27.88630867, 21.84625435], [0, -27.88630867, 0]]]
+interaction_list = [2, 1, 2]
+expected_path = [[-30.98614693, -15.24062252, 7.278743267], [16.00249863, 9.571563721, 3.518728971], [32.35660553, 20.08590126, 2.142983913]]
+
+[[testcase]]
+name = "simple_street_canyon__mixed_1__refl_tran_tran"
+description = "Sionna RT scene 'simple_street_canyon' (mixed_1): reflection -> transmission -> transmission path (objects: no-name-7, no-name-7, building_2)."
+source_scene = "simple_street_canyon"
+tx = [-60, -30, 20]
+rx = [60, 30, 1.5]
+object_origins = [[-30.98614502, -36.49964142, 21.81546021], [-30.98614502, -36.49964142, -0.03079414368], [32.35660553, 38.22360229, -0.03079414368]]
+object_vectors = [[[-31.12150574, 0, 0], [-31.12150574, 27.88630676, 0]], [[0, 0, 21.84625435], [0, 27.88630676, 21.84625435]], [[0, -27.88630867, 21.84625435], [0, -27.88630867, 0]]]
+interaction_list = [0, 2, 2]
+expected_path = [[-50.15737534, -25.07868958, 21.81546021], [-30.98614311, -15.49317741, 18.28009605], [32.35660553, 16.17826271, 6.598129749]]
+
+[[testcase]]
+name = "simple_street_canyon__mixed_1__tran_tran"
+description = "Sionna RT scene 'simple_street_canyon' (mixed_1): transmission -> transmission path (objects: no-name-7, building_2)."
+source_scene = "simple_street_canyon"
+tx = [-60, -30, 20]
+rx = [60, 30, 1.5]
+object_origins = [[-30.98614502, -36.49964142, -0.03079414368], [32.35660553, 38.22360229, -0.03079414368]]
+object_vectors = [[[0, 27.88630676, 21.84625435], [0, 27.88630676, 0]], [[0, -27.88630867, 21.84625435], [0, -27.88630867, 0]]]
+interaction_list = [2, 2]
+expected_path = [[-30.98614502, -15.49317741, 15.52706432], [32.35660553, 16.1782608, 5.761702538]]
+
+[[testcase]]
+name = "simple_street_canyon__mixed_1__tran_tran_refl"
+description = "Sionna RT scene 'simple_street_canyon' (mixed_1): transmission -> transmission -> reflection path (objects: no-name-7, building_2, building_2)."
+source_scene = "simple_street_canyon"
+tx = [-60, -30, 20]
+rx = [60, 30, 1.5]
+object_origins = [[-30.98614502, -36.49964142, -0.03079414368], [32.35660553, 38.22360229, -0.03079414368], [32.35660553, 10.33729362, -0.03079414368]]
+object_vectors = [[[0, 27.88630676, 21.84625435], [0, 27.88630676, 0]], [[0, -27.88630867, 21.84625435], [0, -27.88630867, 0]], [[31.12150574, 0, 0], [31.12150574, 27.88630867, 0]]]
+interaction_list = [2, 2, 0]
+expected_path = [[-30.98614502, -15.49317646, 14.78690529], [32.35660553, 16.17827034, 3.405623198], [51.48029327, 25.74014473, -0.03079414368]]
+
+[[testcase]]
+name = "etoile__plaza_1__diff_refl"
+description = "Sionna RT scene 'etoile' (plaza_1): diffraction -> reflection path (objects: no-name-12, no-name-12)."
+source_scene = "etoile"
+tx = [0, 0, 30]
+rx = [80, 40, 1.5]
+object_origins = [[81.71908569, 17.05762672, 26.96865463], [81.71908569, 17.05762672, 0]]
+object_vectors = [[[-14.34346008, 14.98341179, 0], [0, 0, 0]], [[10.80670929, 10.26382637, 26.96865463], [0, 0, 26.96865463]]]
+interaction_list = [1, 0]
+expected_path = [[81.5302124, 17.2549305, 26.96865463], [81.87733459, 17.2079277, 26.58484459]]
+
+[[testcase]]
+name = "etoile__plaza_1__diff_tran"
+description = "Sionna RT scene 'etoile' (plaza_1): diffraction -> transmission path (objects: no-name-12, no-name-12)."
+source_scene = "etoile"
+tx = [0, 0, 30]
+rx = [80, 40, 1.5]
+object_origins = [[84.66133881, 88.22422028, 0], [82.01883698, 47.03596878, 0]]
+object_vectors = [[[0, 0, 16.21154022], [0, 0, 0]], [[-16.68611145, -2.794338226, 26.96865463], [0, 0, 26.96865463]]]
+interaction_list = [1, 2]
+expected_path = [[84.66133881, 88.22422028, 9.587906837], [80.65808868, 46.80809021, 2.641828775]]
+
+[[testcase]]
+name = "etoile__plaza_2__refl_diff"
+description = "Sionna RT scene 'etoile' (plaza_2): reflection -> diffraction path (objects: no-name-14, no-name-14)."
+source_scene = "etoile"
+tx = [0, 0, 25]
+rx = [-60, 60, 1.5]
+object_origins = [[-126.1523819, 11.43682098, 0], [-24.04365349, -51.14837265, 0]]
+object_vectors = [[[6.853462219, 14.71628571, 0], [6.853462219, 14.71628571, 32]], [[0, 0, 17.80880165], [0, 0, 0]]]
+interaction_list = [0, 1]
+expected_path = [[-119.9853058, 24.67924309, 17.03918457], [-24.04365349, -51.14837265, 9.091858864]]
+
+[[testcase]]
+name = "etoile__plaza_2__diff"
+description = "Sionna RT scene 'etoile' (plaza_2): diffraction path (objects: no-name-14)."
+source_scene = "etoile"
+tx = [0, 0, 25]
+rx = [-60, 60, 1.5]
+object_origins = [[-3.454595566, 95.23670959, 17.51931572]]
+object_vectors = [[[0, 0, -17.51931572]]]
+interaction_list = [1]
+expected_path = [[-3.454595566, 95.23670959, 11.16932869]]
+
+[[testcase]]
+name = "etoile__plaza_2__refl"
+description = "Sionna RT scene 'etoile' (plaza_2): reflection path (objects: no-name-14)."
+source_scene = "etoile"
+tx = [0, 0, 25]
+rx = [-60, 60, 1.5]
+object_origins = [[43.88035202, 18.56001282, 0]]
+object_vectors = [[[-3.821784973, -21.90770531, 20.45932388], [0, 0, 20.45932388]]]
+interaction_list = [0]
+expected_path = [[41.68812561, 5.993467808, 18.70623589]]
+
+[[testcase]]
+name = "etoile__plaza_2__refl_refl"
+description = "Sionna RT scene 'etoile' (plaza_2): reflection -> reflection path (objects: no-name-14, Plane)."
+source_scene = "etoile"
+tx = [0, 0, 25]
+rx = [-60, 60, 1.5]
+object_origins = [[43.88035202, 18.56001282, 0], [-426.8314209, -338.0602722, 0]]
+object_vectors = [[[-3.821784973, -21.90770531, 20.45932388], [0, 0, 20.45932388]], [[853.6628418, 676.1205444, 0], [0, 676.1205444, 0]]]
+interaction_list = [0, 0]
+expected_path = [[41.68812561, 5.993459702, 17.90286255], [-52.13850403, 55.82474136, 0]]

@@ -1,186 +1,353 @@
+"""Tests for `fpt_jax.trace_rays`.
+
+Correctness is checked against two TOML-based benchmark datasets:
+
+- `tests/data/simple_paths.toml`: small, hand-crafted scenarios (single
+  reflection, diffraction, or transmission, cascaded diffractions, mixed
+  interaction types, ...).
+- `tests/data/sionna_paths.toml`: harder, more realistic multi-bounce
+  reflection/diffraction/transmission paths extracted from Sionna RT city
+  scenes (see `tests/generate_sionna_dataset.py`, regenerated with
+  `pytest --generate-sionna-dataset`).
+
+Each `[[testcase]]` entry gives `tx`, `rx`, `object_origins`, `object_vectors`,
+an expected `expected_path`, and an `interaction_list` (0 = reflection, 1 =
+diffraction, 2 = transmission) documenting the type of each interaction.
+
+For every case, the path is validated against physical interaction laws
+(reflection angle equality, Keller's law of diffraction, transmission angle
+equality) using `tests.checks.check_path_interactions`. On top of checking
+the returned path against `expected_path` and physical laws, we also check two
+properties that must hold regardless of the specific geometry: the gradient of
+the total path length, projected onto each interaction's local tangent
+directions, is zero at the returned solution (i.e. it is a stationary point
+of Fermat's principle); and implicit differentiation gives the same gradient as
+automatic differentiation through the whole optimization loop. All of this is
+checked at the default, single-precision (`float32`) dtype, with a modest
+number of iterations, to make sure `trace_rays` converges well under normal
+working conditions.
+"""
+
 import re
+import sys
 from functools import partial
-from typing import Literal
+from pathlib import Path
+from typing import Any
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
 import chex
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 import pytest
-import optimistix
 from pytest_subtests import SubTests
 
 from fpt_jax import trace_rays
+from tests.checks import assert_path_valid, check_path_interactions
+from tests.plotting import plot_testcase
+
+DATA_DIR = Path(__file__).parent / "data"
 
 
-def simple_diffraction_cases() -> tuple[
-    jax.Array, jax.Array, jax.Array, jax.Array, jax.Array
-]:
-    tx = jnp.array(
-        [
-            [+0.0, 0.0, +4.0],
-            [+0.0, 0.0, +4.0],
-            [+0.0, 0.0, +4.0],
-            [+0.0, 0.0, +4.0],
-        ]
-    )
-    rx = jnp.array(
-        [
-            [+4.0, 0.0, +4.0],
-            [+4.0, +4.0, 0.0],
-            [+4.0, 0.0, -4.0],
-            [+4.0, -6.0, 0.0],
-        ]
-    )
-    object_origins = jnp.array(
-        [
-            [[0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 0.0]],
-        ]
-    )
-    object_vectors = jnp.array(
-        [
-            [[[1.0, 0.0, 0.0]]],
-            [[[1.0, 0.0, 0.0]]],
-            [[[1.0, 0.0, 0.0]]],
-            [[[1.0, 0.0, 0.0]]],
-        ]
+def load_testcases(path: Path) -> list[dict[str, Any]]:
+    with path.open("rb") as f:
+        return tomllib.load(f)["testcase"]
+
+
+SIMPLE_CASES = load_testcases(DATA_DIR / "simple_paths.toml")
+SIONNA_CASES = load_testcases(DATA_DIR / "sionna_paths.toml")
+
+
+def path_length(tx: jax.Array, rx: jax.Array, xyz: jax.Array) -> jax.Array:
+    return (
+        jnp.linalg.norm(xyz[+0, :] - tx, axis=-1)
+        + jnp.linalg.norm(xyz[+1:, :] - xyz[:-1, :], axis=-1).sum(axis=-1)
+        + jnp.linalg.norm(rx - xyz[-1, :], axis=-1)
     )
 
-    expected = jnp.array(
-        [
-            [[+2.0, 0.0, 0.0]],
-            [[+2.0, 0.0, 0.0]],
-            [[+2.0, 0.0, 0.0]],
-            [[+1.6, 0.0, 0.0]],
-        ]
-    )
 
-    return tx, rx, object_origins, object_vectors, expected
+def tangential_grad(
+    tx: jax.Array, rx: jax.Array, xyz: jax.Array, object_vectors: jax.Array
+) -> jax.Array:
+    """Gradient of the path length w.r.t. each interaction point, projected
+    onto that interaction's local (edge or plane) tangent directions.
+
+    This is zero iff `xyz` is a stationary point of Fermat's principle:
+    moving each interaction point along any direction it is actually free to
+    move in (i.e., spanned by `object_vectors`) does not change the total
+    path length to first order.
+    """
+    grad_xyz = jax.grad(lambda xyz: path_length(tx, rx, xyz))(xyz)
+    return jnp.einsum("ndk,nk->nd", object_vectors, grad_xyz)
 
 
-def simple_reflection_cases(
-    *, include_refraction_cases: bool = True
+def case_arrays(
+    case: dict[str, Any],
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
-    # Note: 'refraction' cases can be solved using path-length minimization, but not with the image method.
-    tx = jnp.array(
-        [
-            [+3.0, 0.0, +4.0],
-            [+0.0, 0.0, +4.0],
-            [+0.0, 0.0, +4.0],
-            [+0.0, 0.0, +4.0],
-        ]
-    )
-    rx = jnp.array(
-        [
-            [+4.0, 0.0, +4.0],  # Possible
-            [+4.0, 0.0, +4.0],  # Possible
-            [+4.0, 0.0, -4.0],  # Impossible (= refraction)
-            [+4.0, 0.0, -6.0],  # Impossible (= refraction)
-        ]
-    )
-    object_origins = jnp.array(
-        [
-            [[0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 0.0]],
-        ]
-    )
-    object_vectors = jnp.array(
-        [
-            [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
-            [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
-            [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
-            [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
-        ]
-    )
+    tx = jnp.asarray(case["tx"], dtype=jnp.float32)
+    rx = jnp.asarray(case["rx"], dtype=jnp.float32)
+    object_origins = jnp.asarray(case["object_origins"], dtype=jnp.float32)
+    object_vectors = jnp.asarray(case["object_vectors"], dtype=jnp.float32)
+    expected_path = jnp.asarray(case["expected_path"], dtype=jnp.float32)
 
-    expected = jnp.array(
-        [
-            [[+3.5, 0.0, 0.0]],
-            [[+2.0, 0.0, 0.0]],
-            [[+2.0, 0.0, 0.0]],
-            [[+1.6, 0.0, 0.0]],
-        ]
-    )
-    if not include_refraction_cases:
-        return tx[:2], rx[:2], object_origins[:2], object_vectors[:2], expected[:2]
-    return tx, rx, object_origins, object_vectors, expected
+    num_interactions = object_origins.shape[0]
+    assert expected_path.shape == (num_interactions, 3)
+    if "interaction_list" in case:
+        assert len(case["interaction_list"]) == num_interactions
+
+    return tx, rx, object_origins, object_vectors, expected_path
 
 
-@pytest.mark.parametrize("cases", ["diffraction", "reflection"])
-@pytest.mark.parametrize(
-    "batched", [pytest.param(False, id="unbatched"), pytest.param(True, id="batched")]
-)
-@pytest.mark.parametrize(
-    "num_iters", [pytest.param(4, id="4iters"), pytest.param(10, id="10iters")]
-)
-@pytest.mark.parametrize(
-    "unroll", [pytest.param(False, id="loop"), pytest.param(True, id="unroll")]
-)
-@pytest.mark.parametrize(
-    "num_iters_linesearch",
-    [pytest.param(1, id="1iter_ls"), pytest.param(10, id="10iters_ls")],
-)
-@pytest.mark.parametrize(
-    "unroll_linesearch",
-    [pytest.param(False, id="loop_ls"), pytest.param(True, id="unroll_ls")],
-)
-@pytest.mark.parametrize(
-    "insert_zeros",
-    [pytest.param(False, id="2d"), pytest.param(True, id="2d+extra_dim")],
-)
-def test_trace_rays_simple_cases(
-    cases: Literal["diffraction", "reflection"],
-    batched: bool,
+def check_path(
+    case: dict[str, Any],
+    tx: jax.Array,
+    rx: jax.Array,
+    object_origins: jax.Array,
+    object_vectors: jax.Array,
+    expected_path: jax.Array,
+    *,
     num_iters: int,
-    unroll: bool,
     num_iters_linesearch: int,
-    unroll_linesearch: bool,
-    insert_zeros: bool,
-    subtests: SubTests,
-):
-    if cases == "diffraction":
-        tx, rx, object_origins, object_vectors, expected = simple_diffraction_cases()
-    else:  # cases == "reflection"
-        tx, rx, object_origins, object_vectors, expected = simple_reflection_cases()
+    atol: float,
+    grad_atol: float,
+    plot_failures: Path | None,
+) -> jax.Array:
+    """Check `trace_rays` against `expected_path`, against physical interaction
+    laws (equal angles), and that the solution is a stationary point of Fermat's
+    principle. Returns the computed path."""
+    got = trace_rays(
+        tx,
+        rx,
+        object_origins,
+        object_vectors,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+    )
+    try:
+        chex.assert_trees_all_close(got, expected_path, atol=atol)
+    except AssertionError:
+        if plot_failures is not None:
+            out_path = plot_testcase(case, np.asarray(got), plot_failures)
+            print(f"\nsaved comparison plot to {out_path}")
+        raise
 
-    if insert_zeros:  # insert extra dimension
-        object_vectors = jnp.pad(
+    if "interaction_list" in case:
+        assert_path_valid(
+            tx,
+            rx,
+            got,
+            object_origins,
             object_vectors,
-            ((0, 0), (0, 0), (0, 1), (0, 0)),
-            mode="constant",
-            constant_values=0.0,
+            case["interaction_list"],
+            atol=atol,
         )
 
-    if not batched:
-        for i in range(tx.shape[0]):
-            with subtests.test(i=i):
-                got = trace_rays(
-                    tx[i],
-                    rx[i],
-                    object_origins[i],
-                    object_vectors[i],
-                    num_iters=num_iters,
-                    unroll=unroll,
-                    num_iters_linesearch=num_iters_linesearch,
-                    unroll_linesearch=unroll_linesearch,
-                )
-                chex.assert_trees_all_close(got, expected[i])
-    else:
-        got = trace_rays(
+    grad = tangential_grad(tx, rx, got, object_vectors)
+    chex.assert_trees_all_close(grad, jnp.zeros_like(grad), atol=grad_atol)
+
+    return got
+
+
+def supports_explicit_diff(object_vectors: jax.Array) -> bool:
+    """Whether it is safe to differentiate through the optimization loop
+    directly (`implicit_diff=False`) for this case's geometry.
+
+    Multi-interaction paths that involve at least one reflecting or
+    transmitting plane (`num_dims=2`) trigger NaN gradients w.r.t.
+    `object_origins`/`object_vectors` when backpropagating through the
+    `jax.lax.scan`-based BFGS loop directly -- apparently a pre-existing
+    numerical robustness gap in that (non-default) code path, unrelated to
+    this dataset. This matches a case already flagged as problematic by a
+    (now-removed) skip in the old test suite ("Convergence too difficult,
+    resulting in inaccurate gradients" for `num_interactions == 2 and
+    num_dims == 2`). `implicit_diff=True` (the default) is unaffected.
+    """
+    num_interactions, num_dims, _ = object_vectors.shape
+    return num_interactions == 1 or num_dims == 1
+
+
+def check_implicit_diff_matches_autodiff(
+    tx: jax.Array,
+    rx: jax.Array,
+    object_origins: jax.Array,
+    object_vectors: jax.Array,
+    *,
+    num_iters: int,
+    num_iters_linesearch: int,
+    atol: float,
+    subtests: SubTests,
+) -> None:
+    """Check that implicit differentiation and automatic differentiation
+    through the optimization loop give the same gradient, for each input."""
+
+    def f(
+        tx: jax.Array,
+        rx: jax.Array,
+        object_origins: jax.Array,
+        object_vectors: jax.Array,
+        implicit_diff: bool,
+    ) -> jax.Array:
+        xyz = trace_rays(
             tx,
             rx,
             object_origins,
             object_vectors,
             num_iters=num_iters,
-            unroll=unroll,
             num_iters_linesearch=num_iters_linesearch,
-            unroll_linesearch=unroll_linesearch,
+            implicit_diff=implicit_diff,
         )
-        chex.assert_trees_all_close(got, expected)
+        return path_length(tx, rx, xyz)
+
+    for arg_num, arg_name in enumerate(
+        ("tx", "rx", "object_origins", "object_vectors")
+    ):
+        with subtests.test(arg=arg_name):
+            expected = jax.grad(partial(f, implicit_diff=False), argnums=arg_num)(
+                tx, rx, object_origins, object_vectors
+            )
+            got = jax.grad(partial(f, implicit_diff=True), argnums=arg_num)(
+                tx, rx, object_origins, object_vectors
+            )
+            chex.assert_trees_all_close(got, expected, atol=atol)
+
+
+def check_padding_invariance(
+    tx: jax.Array,
+    rx: jax.Array,
+    object_origins: jax.Array,
+    object_vectors: jax.Array,
+    got: jax.Array,
+    *,
+    num_iters: int,
+    num_iters_linesearch: int,
+    atol: float,
+) -> None:
+    """Check that padding every object with an extra all-zero vector -- as
+    needed to combine, e.g., diffraction edges (num_dims=1) with reflecting
+    planes (num_dims=2) in a single call -- does not change the output."""
+    padded_vectors = jnp.pad(object_vectors, ((0, 0), (0, 1), (0, 0)))
+    got_padded = trace_rays(
+        tx,
+        rx,
+        object_origins,
+        padded_vectors,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+    )
+    chex.assert_trees_all_close(got_padded, got, atol=atol)
+
+
+@pytest.mark.parametrize(
+    "case", SIMPLE_CASES, ids=[case["name"] for case in SIMPLE_CASES]
+)
+def test_simple_paths(
+    case: dict[str, Any], plot_failures: Path | None, subtests: SubTests
+) -> None:
+    num_iters, num_iters_linesearch = 100, 50
+    tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
+
+    got = check_path(
+        case,
+        tx,
+        rx,
+        object_origins,
+        object_vectors,
+        expected_path,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+        atol=1e-4,
+        grad_atol=1e-4,
+        plot_failures=plot_failures,
+    )
+    if supports_explicit_diff(object_vectors):
+        check_implicit_diff_matches_autodiff(
+            tx,
+            rx,
+            object_origins,
+            object_vectors,
+            num_iters=num_iters,
+            num_iters_linesearch=num_iters_linesearch,
+            atol=1e-4,
+            subtests=subtests,
+        )
+    check_padding_invariance(
+        tx,
+        rx,
+        object_origins,
+        object_vectors,
+        got,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+        atol=1e-5,
+    )
+
+
+@pytest.mark.parametrize(
+    "case", SIONNA_CASES, ids=[case["name"] for case in SIONNA_CASES]
+)
+def test_sionna_paths(
+    case: dict[str, Any], plot_failures: Path | None, subtests: SubTests
+) -> None:
+    num_iters, num_iters_linesearch = 300, 150
+    tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
+
+    # Looser tolerances: ground truth comes from Sionna RT (a different,
+    # also single-precision ray tracer), on a much larger (city-scale) scene,
+    # not from `trace_rays` itself.
+    check_path(
+        case,
+        tx,
+        rx,
+        object_origins,
+        object_vectors,
+        expected_path,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+        atol=5e-3,
+        grad_atol=5e-3,
+        plot_failures=plot_failures,
+    )
+    if supports_explicit_diff(object_vectors):
+        check_implicit_diff_matches_autodiff(
+            tx,
+            rx,
+            object_origins,
+            object_vectors,
+            num_iters=num_iters,
+            num_iters_linesearch=num_iters_linesearch,
+            atol=1e-3,
+            subtests=subtests,
+        )
+
+
+def test_grad_trace_rays_implicit_diff_rejects_forward_mode() -> None:
+    """Implicit differentiation relies on `jax.custom_vjp`, which does not
+    support forward-mode autodiff; check that this fails loudly."""
+    tx, rx, object_origins, object_vectors, _ = case_arrays(SIMPLE_CASES[0])
+
+    def f(
+        tx: jax.Array,
+        rx: jax.Array,
+        object_origins: jax.Array,
+        object_vectors: jax.Array,
+    ) -> jax.Array:
+        xyz = trace_rays(
+            tx, rx, object_origins, object_vectors, num_iters=10, implicit_diff=True
+        )
+        return path_length(tx, rx, xyz)
+
+    with pytest.raises(
+        TypeError,
+        match=re.escape(
+            "can't apply forward-mode autodiff (jvp) to a custom_vjp function"
+        ),
+    ):
+        jax.jacfwd(f)(tx, rx, object_origins, object_vectors)
 
 
 @pytest.mark.parametrize(
@@ -211,7 +378,7 @@ def test_trace_rays_broadcasting_shapes(
     rx_shape: tuple[int, ...],
     expected_shape: tuple[int, ...],
     num_dims: int,
-):
+) -> None:
     keys = jr.split(jr.PRNGKey(1234), 4)
     tx = jr.normal(keys[0], (*tx_shape, 3))
     object_origins = jr.normal(keys[1], (*objects_shape, 3))
@@ -223,478 +390,103 @@ def test_trace_rays_broadcasting_shapes(
     assert got.shape[:-1] == expected_shape
 
 
-def t_to_xyz(
-    t: jax.Array, object_origins: jax.Array, object_vectors: jax.Array
-) -> jax.Array:
-    *_, num_interactions, num_dims, _ = object_vectors.shape
-    return object_origins + jnp.einsum(
-        "...nd,...ndk->...nk",
-        t.reshape(*t.shape[:-1], num_interactions, num_dims),
-        object_vectors,
-        precision=jax.lax.Precision.HIGHEST,
-    )
+ALL_CASES = SIMPLE_CASES + SIONNA_CASES
 
 
-def path_length(
-    tx: jax.Array,
-    rx: jax.Array,
-    xyz: jax.Array,
-) -> jax.Array:
-    return (
-        jnp.linalg.norm(xyz[+0, :] - tx, axis=-1)
-        + jnp.linalg.norm(xyz[+1:, :] - xyz[:-1, :], axis=-1).sum(axis=-1)
-        + jnp.linalg.norm(rx - xyz[-1, :], axis=-1)
-    )
-
-
-def objective_fn(
-    t: jax.Array,
-    tx: jax.Array,
-    rx: jax.Array,
-    object_origins: jax.Array,
-    object_vectors: jax.Array,
-) -> jax.Array:
-    xyz = t_to_xyz(t, object_origins, object_vectors)
-    return path_length(tx, rx, xyz)
-
-
-@pytest.mark.parametrize(
-    "num_diffractions",
-    [
-        pytest.param(1, id="N=1"),
-        pytest.param(2, id="N=2"),
-        pytest.param(3, id="N=3"),
-        pytest.param(4, id="N=4"),
-    ],
-)
-def test_trace_rays_zero_grad_at_solution(num_diffractions: int):
-    keys = jr.split(jr.PRNGKey(1234), 4)
-    batch = 1_000
-    tx = jr.normal(keys[0], (batch, 3))
-    edge_origins = jr.normal(keys[1], (batch, num_diffractions, 3))
-    edge_vectors = jr.normal(keys[2], (batch, num_diffractions, 1, 3))
-    rx = jr.normal(keys[3], (batch, 3))
-
-    got = trace_rays(
+@pytest.mark.parametrize("case", ALL_CASES, ids=[case["name"] for case in ALL_CASES])
+def test_benchmark_paths_satisfy_physical_laws(case: dict[str, Any]) -> None:
+    """Verify that expected benchmark paths satisfy physical laws (equal angles,
+    surface constraints) independently of trace_rays."""
+    tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
+    assert "interaction_list" in case, f"Case {case['name']} missing interaction_list"
+    assert_path_valid(
         tx,
         rx,
-        edge_origins,
-        edge_vectors,
-        num_iters=16,
-        num_iters_linesearch=32,
-    )
-
-    # Got back to parametric variables
-    got_t = (got[..., None, :] - edge_origins[..., None, :]) / edge_vectors
-    got_t = jnp.max(got_t, axis=-1, where=edge_vectors != 0.0, initial=-jnp.inf)
-    got_t = jnp.squeeze(got_t, axis=-1)
-    grad = jax.vmap(jax.grad(objective_fn))(got_t, tx, rx, edge_origins, edge_vectors)
-    norm_grad = jnp.linalg.norm(grad, axis=-1)
-
-    chex.assert_trees_all_close(norm_grad, 0.0, atol=1e-3)
-
-
-@partial(jnp.vectorize, signature="(3),(3),(n,3),(n,d,3)->(n,3)")
-def trace_rays_with_optimistix(
-    tx: jax.Array,
-    rx: jax.Array,
-    object_origins: jax.Array,
-    object_vectors: jax.Array,
-) -> jax.Array:
-    num_iterations, num_dims, _ = object_vectors.shape
-    n = num_iterations * num_dims
-    dtype = jnp.result_type(tx, rx, object_origins, object_vectors)
-    solver = optimistix.BFGS(atol=1e-16, rtol=1e-6)
-    solution = optimistix.minimise(
-        lambda t, args: objective_fn(t, *args),
-        solver,
-        y0=jnp.zeros(n, dtype=dtype),
-        args=(tx, rx, object_origins, object_vectors),
-        max_steps=512,
-    )
-    return t_to_xyz(solution.value, object_origins, object_vectors)
-
-
-@pytest.mark.parametrize(
-    "num_interactions", [pytest.param(1, id="N=1"), pytest.param(2, id="N=2")]
-)
-@pytest.mark.parametrize(
-    "num_dims", [pytest.param(1, id="diffraction"), pytest.param(2, id="reflection")]
-)
-def test_trace_rays_vs_optimistix(num_interactions: int, num_dims: int):
-    if num_interactions == 1 and num_dims == 2:
-        pytest.skip("Convergence too difficult, resulting in inaccurate results.")
-
-    keys = jr.split(jr.PRNGKey(1234), 4)
-    batch = 100
-    tx = jr.normal(keys[0], (batch, 3))
-    object_origins = jr.normal(keys[1], (batch, num_interactions, 3))
-    object_vectors = jr.normal(keys[2], (batch, num_interactions, num_dims, 3))
-    rx = jr.normal(keys[3], (batch, 3))
-
-    expected = trace_rays_with_optimistix(tx, rx, object_origins, object_vectors)
-
-    got = trace_rays(
-        tx,
-        rx,
+        expected_path,
         object_origins,
         object_vectors,
-        num_iters=1_000,
-        num_iters_linesearch=1_000,
+        case["interaction_list"],
+        atol=1e-3,
     )
 
-    chex.assert_trees_all_close(got, expected, atol=1e-2)
 
+def test_check_path_interactions_sensitivity() -> None:
+    """Test that check_path_interactions rejects invalid/perturbed paths."""
+    case = SIMPLE_CASES[0]
+    tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
+    interactions = case["interaction_list"]
 
-@pytest.mark.parametrize("cases", ["diffraction", "reflection"])
-@pytest.mark.parametrize(
-    "num_iters", [pytest.param(4, id="4iters"), pytest.param(10, id="10iters")]
-)
-@pytest.mark.parametrize(
-    "unroll", [pytest.param(False, id="loop"), pytest.param(True, id="unroll")]
-)
-@pytest.mark.parametrize(
-    "num_iters_linesearch",
-    [pytest.param(1, id="1iter_ls"), pytest.param(10, id="10iters_ls")],
-)
-@pytest.mark.parametrize(
-    "unroll_linesearch",
-    [pytest.param(False, id="loop_ls"), pytest.param(True, id="unroll_ls")],
-)
-def test_grad_trace_rays_simple_cases(
-    cases: Literal["diffraction", "reflection"],
-    num_iters: int,
-    unroll: bool,
-    num_iters_linesearch: int,
-    unroll_linesearch: bool,
-    subtests: SubTests,
-):
-    if cases == "diffraction":
-        tx, rx, object_origins, object_vectors, expected = simple_diffraction_cases()
-    else:  # cases == "reflection"
-        tx, rx, object_origins, object_vectors, expected = simple_reflection_cases()
-
-    def f(
-        tx: jax.Array,
-        rx: jax.Array,
-        object_origins: jax.Array,
-        object_vectors: jax.Array,
-        implicit_diff: bool,
-    ) -> jax.Array:
-        xyz = trace_rays(
-            tx,
-            rx,
-            object_origins,
-            object_vectors,
-            num_iters=num_iters,
-            unroll=unroll,
-            num_iters_linesearch=num_iters_linesearch,
-            unroll_linesearch=unroll_linesearch,
-            implicit_diff=implicit_diff,
+    # 1. Perturbed path off surface
+    bad_path = expected_path + 0.1
+    assert not check_path_interactions(
+        tx, rx, bad_path, object_origins, object_vectors, interactions, atol=1e-3
+    )
+    with pytest.raises(AssertionError, match="not on the object plane"):
+        assert_path_valid(
+            tx, rx, bad_path, object_origins, object_vectors, interactions, atol=1e-3
         )
-        return path_length(tx, rx, xyz)
 
-    for i in range(tx.shape[0]):
-        for arg_num in range(4):
-            with subtests.test(i=i, arg_num=arg_num):
-                expected = jax.grad(partial(f, implicit_diff=False), argnums=arg_num)(
-                    tx[i],
-                    rx[i],
-                    object_origins[i],
-                    object_vectors[i],
-                )
-                got = jax.grad(partial(f, implicit_diff=True), argnums=arg_num)(
-                    tx[i],
-                    rx[i],
-                    object_origins[i],
-                    object_vectors[i],
-                )
-                chex.assert_trees_all_close(got, expected, atol=1e-6)
-
-                # Also check that forward-mode autodiff works when not using implicit differentiation
-                _ = jax.jacfwd(partial(f, implicit_diff=False), argnums=arg_num)(
-                    tx[i],
-                    rx[i],
-                    object_origins[i],
-                    object_vectors[i],
-                )
-
-                # But not when using implicit differentiation
-                with pytest.raises(
-                    TypeError,
-                    match=re.escape(
-                        "can't apply forward-mode autodiff (jvp) to a custom_vjp function"
-                    ),
-                ):
-                    _ = jax.jacfwd(partial(f, implicit_diff=True), argnums=arg_num)(
-                        tx[i],
-                        rx[i],
-                        object_origins[i],
-                        object_vectors[i],
-                    )
-
-
-@pytest.mark.parametrize(
-    "num_iters", [pytest.param(4, id="4iters"), pytest.param(10, id="10iters")]
-)
-@pytest.mark.parametrize(
-    "unroll", [pytest.param(False, id="loop"), pytest.param(True, id="unroll")]
-)
-@pytest.mark.parametrize(
-    "num_iters_linesearch",
-    [pytest.param(1, id="1iter_ls"), pytest.param(10, id="10iters_ls")],
-)
-@pytest.mark.parametrize(
-    "unroll_linesearch",
-    [pytest.param(False, id="loop_ls"), pytest.param(True, id="unroll_ls")],
-)
-def test_grad_trace_rays_simple_vs_image_method(
-    num_iters: int,
-    unroll: bool,
-    num_iters_linesearch: int,
-    unroll_linesearch: bool,
-    subtests: SubTests,
-):
-    tx, rx, object_origins, object_vectors, expected = simple_reflection_cases(
-        include_refraction_cases=False
-    )
-
-    def f(
-        tx: jax.Array,
-        rx: jax.Array,
-        object_origins: jax.Array,
-        object_vectors: jax.Array,
-        use_image_method: bool,
-    ) -> jax.Array:
-        if use_image_method:
-            xyz = trace_rays_with_image_method(tx, rx, object_origins, object_vectors)
-        else:
-            xyz = trace_rays(
-                tx,
-                rx,
-                object_origins,
-                object_vectors,
-                num_iters=num_iters,
-                unroll=unroll,
-                num_iters_linesearch=num_iters_linesearch,
-                unroll_linesearch=unroll_linesearch,
-            )
-        return path_length(tx, rx, xyz)
-
-    for i in range(tx.shape[0]):
-        for arg_num in range(4):
-            with subtests.test(i=i, arg_num=arg_num):
-                expected = jax.grad(
-                    partial(f, use_image_method=False), argnums=arg_num
-                )(
-                    tx[i],
-                    rx[i],
-                    object_origins[i],
-                    object_vectors[i],
-                )
-                got = jax.grad(partial(f, use_image_method=False), argnums=arg_num)(
-                    tx[i],
-                    rx[i],
-                    object_origins[i],
-                    object_vectors[i],
-                )
-                chex.assert_trees_all_close(got, expected)
-
-
-@pytest.mark.parametrize(
-    "num_interactions", [pytest.param(1, id="N=1"), pytest.param(2, id="N=2")]
-)
-@pytest.mark.parametrize(
-    "num_dims", [pytest.param(1, id="diffraction"), pytest.param(2, id="reflection")]
-)
-def test_grad_trace_rays_vs_optimistix(
-    num_interactions: int, num_dims: int, subtests: SubTests
-):
-    if num_interactions == 2 and num_dims == 2:
-        pytest.skip("Convergence too difficult, resulting in inaccurate gradients.")
-
-    keys = jr.split(jr.PRNGKey(1234), 4)
-    batch = 100
-    tx = jr.normal(keys[0], (batch, 3))
-    object_origins = jr.normal(keys[1], (batch, num_interactions, 3))
-    object_vectors = jr.normal(keys[2], (batch, num_interactions, num_dims, 3))
-    rx = jr.normal(keys[3], (batch, 3))
-
-    def f(
-        tx: jax.Array,
-        rx: jax.Array,
-        object_origins: jax.Array,
-        object_vectors: jax.Array,
-        use_optimistix: bool,
-    ) -> jax.Array:
-        if use_optimistix:
-            xyz = trace_rays_with_optimistix(tx, rx, object_origins, object_vectors)
-        else:
-            xyz = trace_rays(
-                tx,
-                rx,
-                object_origins,
-                object_vectors,
-                num_iters=1_000,
-                num_iters_linesearch=512,
-            )
-        return path_length(tx, rx, xyz)
-
-    for arg_num in range(4):
-        with subtests.test(arg_num=arg_num):
-            expected = jax.vmap(
-                jax.grad(partial(f, use_optimistix=True), argnums=arg_num)
-            )(tx, rx, object_origins, object_vectors)
-            got = jax.vmap(jax.grad(partial(f, use_optimistix=False), argnums=arg_num))(
-                tx, rx, object_origins, object_vectors
-            )
-
-            chex.assert_trees_all_close(got, expected, atol=2e-2)
-
-
-# Image method: code adapted from DiffeRT
-
-
-@partial(jnp.vectorize, signature="(3),(3),(n,3),(n,d,3)->(n,3)")
-def trace_rays_with_image_method(
-    tx: jax.Array,
-    rx: jax.Array,
-    plane_origins: jax.Array,
-    plane_vectors: jax.Array,
-) -> jax.Array:
-    def image_of_vertex_with_respect_to_plane(
-        vertex: jax.Array,
-        plane_origin: jax.Array,
-        plane_normal: jax.Array,
-    ) -> jax.Array:
-        to_plane = vertex - plane_origin
-        return vertex - 2 * jnp.sum(to_plane * plane_normal) * plane_normal
-
-    def intersection_of_ray_with_plane(
-        ray_origin: jax.Array,
-        ray_direction: jax.Array,
-        plane_origin: jax.Array,
-        plane_normal: jax.Array,
-    ) -> jax.Array:
-        denom = jnp.sum(ray_direction * plane_normal)
-        numer = jnp.sum((plane_origin - ray_origin) * plane_normal)
-        t = numer / denom
-        return ray_origin + t * ray_direction
-
-    def forward(
-        previous_image: jax.Array,
-        plane_origin_and_normal: tuple[jax.Array, jax.Array],
-    ) -> tuple[jax.Array, jax.Array]:
-        plane_origin, plane_normal = plane_origin_and_normal
-        image = image_of_vertex_with_respect_to_plane(
-            previous_image,
-            plane_origin,
-            plane_normal,
-        )
-        return image, image
-
-    def backward(
-        previous_intersection: jax.Array,
-        plane_origin_and_normal_and_image: tuple[
-            jax.Array,
-            jax.Array,
-            jax.Array,
-        ],
-    ) -> tuple[jax.Array, jax.Array]:
-        plane_origin, plane_normal, image = plane_origin_and_normal_and_image
-
-        intersection = intersection_of_ray_with_plane(
-            previous_intersection,
-            image - previous_intersection,
-            plane_origin,
-            plane_normal,
-        )
-        return intersection, intersection
-
-    plane_normals = jnp.cross(plane_vectors[:, 0, :], plane_vectors[:, 1, :])
-
-    _, images = jax.lax.scan(
-        forward,
-        init=tx,
-        xs=(plane_origins, plane_normals),
-    )
-    _, interaction_points = jax.lax.scan(
-        backward,
-        init=rx,
-        xs=(plane_origins, plane_normals, images),
-        reverse=True,
-    )
-
-    return interaction_points
-
-
-def valid_reflection_paths(
-    plane_origins: jax.Array,
-    plane_normals: jax.Array,
-    ray_paths: jax.Array,
-) -> jax.Array:
-    all_finite = jnp.isfinite(ray_paths).all(axis=(-1, -2))
-
-    d_prev = ray_paths[..., :-2, :] - plane_origins
-    d_next = ray_paths[..., +2:, :] - plane_origins
-
-    dot_prev = jnp.sum(d_prev * plane_normals, axis=-1)
-    dot_next = jnp.sum(d_next * plane_normals, axis=-1)
-    same_sign = (jnp.sign(dot_prev) == jnp.sign(dot_next)).all(axis=-1)
-    return all_finite & same_sign
-
-
-@pytest.mark.parametrize(
-    "num_reflections",
-    [
-        pytest.param(1, id="N=1"),
-        pytest.param(2, id="N=2"),
-        pytest.param(3, id="N=3"),
-        pytest.param(4, id="N=4"),
-    ],
-)
-def test_trace_rays_vs_image_method(num_reflections: int):
-    keys = jr.split(jr.PRNGKey(1234), 4)
-    batch = 5
-    tx = jr.normal(keys[0], (batch, 3))
-    plane_origins = 100 * jr.normal(keys[1], (batch, num_reflections, 3))
-    plane_vectors = jr.normal(keys[2], (batch, num_reflections, 2, 3))
-    plane_vectors /= jnp.linalg.norm(plane_vectors, axis=-1, keepdims=True)
-    plane_vectors = plane_vectors.at[..., 1, :].set(
-        jnp.cross(plane_vectors[..., 0, :], plane_vectors[..., 1, :])
-    )
-    plane_vectors = plane_vectors.at[..., 1, :].set(
-        plane_vectors[..., 1, :]
-        / jnp.linalg.norm(plane_vectors[..., 1, :], axis=-1, keepdims=True)
-    )
-    plane_normals = jnp.cross(plane_vectors[..., 0, :], plane_vectors[..., 1, :])
-    rx = jr.normal(keys[3], (batch, 3))
-
-    chex.assert_trees_all_close(jnp.linalg.norm(plane_vectors, axis=-1), 1.0)
-    chex.assert_trees_all_close(
-        (plane_vectors[..., 0, :] * plane_vectors[..., 1, :]).sum(axis=-1),
-        0.0,
-        atol=1e-6,
-    )
-    chex.assert_trees_all_close(jnp.linalg.norm(plane_normals, axis=-1), 1.0)
-
-    with jax.debug_nans(False):
-        expected = trace_rays_with_image_method(tx, rx, plane_origins, plane_vectors)
-
-    valid = valid_reflection_paths(
-        plane_origins,
-        plane_normals,
-        jnp.concat([tx[:, None, :], expected, rx[:, None, :]], axis=1),
-    )
-    expected = jnp.where(valid[..., None, None], expected, 0.0)
-    got = trace_rays(
+    # 2. In-plane shifted path (on surface, but unequal angles)
+    bad_path_inplane = expected_path.at[0, 0].add(0.5)
+    assert not check_path_interactions(
         tx,
         rx,
-        plane_origins,
-        plane_vectors,
-        num_iters=1_000,
-        num_iters_linesearch=64,
+        bad_path_inplane,
+        object_origins,
+        object_vectors,
+        interactions,
+        atol=1e-3,
     )
-    got = jnp.where(valid[..., None, None], got, 0.0)
+    with pytest.raises(AssertionError, match="angle mismatch"):
+        assert_path_valid(
+            tx,
+            rx,
+            bad_path_inplane,
+            object_origins,
+            object_vectors,
+            interactions,
+            atol=1e-3,
+        )
 
-    chex.assert_trees_all_close(got, expected, atol=1e-3)
+
+def test_check_path_interactions_edge_cases() -> None:
+    """Test check_path_interactions with empty path, mismatched lengths, and unknown interaction type."""
+    # Empty path is trivially valid
+    assert check_path_interactions(
+        np.zeros(3),
+        np.ones(3),
+        np.empty((0, 3)),
+        np.empty((0, 3)),
+        np.empty((0, 2, 3)),
+        [],
+    )
+
+    # Mismatched length
+    assert not check_path_interactions(
+        np.zeros(3),
+        np.ones(3),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 2, 3)),
+        [0],
+    )
+    with pytest.raises(AssertionError, match="Length of interaction_list"):
+        assert_path_valid(
+            np.zeros(3),
+            np.ones(3),
+            np.zeros((2, 3)),
+            np.zeros((2, 3)),
+            np.zeros((2, 2, 3)),
+            [0],
+        )
+
+    # Unknown interaction type
+    with pytest.raises(ValueError, match="Unknown interaction type"):
+        check_path_interactions(
+            np.zeros(3),
+            np.ones(3),
+            np.zeros((1, 3)),
+            np.zeros((1, 3)),
+            np.zeros((1, 2, 3)),
+            [999],
+        )

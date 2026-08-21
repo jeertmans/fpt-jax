@@ -13,7 +13,10 @@ repos:
     args: [--autofix]
   - id: pretty-format-toml
     args: [--autofix, --trailing-commas]
-    exclude: Cargo.lock
+    exclude: (uv.lock)|(^tests/.*\.toml$)
+  - id: pretty-format-toml
+    args: [--autofix, --trailing-commas, --no-sort]
+    files: ^tests/.*\.toml$
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.13.3
   hooks:
@@ -22,10 +25,10 @@ repos:
     types_or: [python, pyi]
   - id: ruff-format
     types_or: [python, pyi]
-- repo: https://github.com/RobertCraigie/pyright-python
-  rev: v1.1.406
+- repo: https://github.com/astral-sh/ty-pre-commit
+  rev: v0.0.69
   hooks:
-  - id: pyright
+  - id: ty
 - repo: https://github.com/astral-sh/uv-pre-commit
   rev: 0.8.23
   hooks:

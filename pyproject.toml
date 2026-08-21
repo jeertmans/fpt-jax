@@ -9,13 +9,16 @@ cuda = [
 dev = [
   {include-group = "tests"},
   "bump-my-version>=1.2.6",
+  "pre-commit>=4.6.2",
 ]
 tests = [
   "chex>=0.1.90",
-  "optimistix>=0.0.10",
+  "plotly>=5.18.0",
   "pytest>=8.4.2",
   "pytest-env>=1.2.0",
   "pytest-subtests>=0.14.2",
+  "sionna-rt",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project]
@@ -91,15 +94,11 @@ replacement = '> **\1:**'
 [tool.hatch.version]
 path = "src/fpt_jax/__version__.py"
 
-[tool.pyright]
-include = ["src/fpt_jax", "tests"]
-reportMissingTypeArgument = true
-reportUnnecessaryTypeIgnoreComment = true
-venv = ".venv"
-venvPath = "."
-
 [tool.pytest.ini_options]
 env = [
   "JAX_DEBUG_NANS=True",
   "JAX_PLATFORM_NAME=cpu",
 ]
+
+[tool.uv.sources]
+sionna-rt = {git = "https://github.com/NVLAbs/sionna-rt", rev = "bc0549155c7b782c7614a0ec06a0ac4e32b979ae"}
