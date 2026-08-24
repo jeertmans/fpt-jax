@@ -3,6 +3,12 @@ build-backend = "hatchling.build"
 requires = ["hatchling", "hatch-fancy-pypi-readme"]
 
 [dependency-groups]
+benchmarks = [
+    "cvxpy>=1.7.5",
+    "ecos>=2.0.14",
+    "matplotlib>=3.10.9",
+    "tqdm>=4.70.0",
+]
 cuda = [
   "jax[cuda]>=0.5.3",
 ]

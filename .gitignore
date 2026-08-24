@@ -1,2 +1,3 @@
 __pycache__/
 .benchmark-plots/
+scripts/benchmark_results/

@@ -1,0 +1,47 @@
+# Randomly generated "hard" test cases where two or more consecutive planar
+# interactions (reflection/transmission) sit close to their mutual plane
+# intersection. On these, plain BFGS (`use_image_method=False`) reliably gets
+# stuck at a measurably suboptimal path, while the image-method hybrid solver
+# (`use_image_method=True`) converges to the exact optimum -- see
+# `test_complex_paths_hybrid_beats_fermat` in test_trace_rays.py and
+# `scripts/compare_solvers.py` for the accuracy-vs-time comparison.
+
+[[testcase]]
+name = "near_intersecting_reflection_then_transmission"
+description = "Randomly generated 2-interaction chain (reflection-transmission) with near-intersecting planes: at 200 iterations, plain BFGS is stuck at a path length error of 3.75e-03, while the image-method hybrid solver has converged exactly (error 0.0e+00)."
+tx = [-0.011129757, -0.4783642, -0.67975092]
+rx = [10.192245, 1.5895269, 0.34554586]
+object_origins = [[3.3333335, 3.3468442, 1.4718411], [6.666667, 1.0697538, 0.53294438]]
+object_vectors = [[[-2.728632, -1.23177, -0.19315638], [0.16254237, -0.81221485, 2.8833811]], [[-1.8177402, 2.2899909, -0.67213219], [-2.3864784, -1.7358363, 0.53999579]]]
+interaction_list = [0, 2]
+expected_path = [[2.2286847, 3.1047566, 0.56159085], [10.153886, 1.5968254, 0.34658653]]
+
+[[testcase]]
+name = "near_intersecting_double_transmission"
+description = "Randomly generated 2-interaction chain (transmission-transmission) with near-intersecting planes: at 200 iterations, plain BFGS is stuck at a path length error of 1.96e-03, while the image-method hybrid solver has converged exactly (error 0.0e+00)."
+tx = [1.3365868, -1.7535219, -0.24829458]
+rx = [8.7622261, -0.22477925, 0.55994374]
+object_origins = [[3.3333335, -1.0098267, 0.28559738], [6.666667, -0.7681151, 1.0569032]]
+object_vectors = [[[-2.0550399, -1.3673897, -1.7050097], [2.0948985, -0.56517625, -2.0717087]], [[-2.003232, 1.3631642, 1.7688539], [0.64111918, -1.9251591, 2.2096899]]]
+interaction_list = [2, 2]
+expected_path = [[1.4216759, -1.7360044, -0.23903316], [6.8619542, -0.61599517, 0.3531099]]
+
+[[testcase]]
+name = "near_intersecting_double_reflection"
+description = "Randomly generated 2-interaction chain (reflection-reflection) with near-intersecting planes: at 200 iterations, plain BFGS is stuck at a path length error of 1.12e-03, while the image-method hybrid solver has converged exactly (error 0.0e+00)."
+tx = [0.72903502, -0.099354237, -1.9825629]
+rx = [8.5849266, 0.15838908, -1.1695418]
+object_origins = [[3.3333335, -1.6971555, 0.94467598], [6.666667, 0.55035925, -0.83806789]]
+object_vectors = [[[-2.8560314, -0.73510182, 0.55018961], [0.85924387, -1.5059798, 2.4482088]], [[-1.7518415, -1.7529713, 1.6906035], [2.3989532, -1.600933, 0.82585716]]]
+interaction_list = [0, 0]
+expected_path = [[0.79298234, -0.098168254, -1.9752424], [7.8763671, 0.38618755, -0.92643911]]
+
+[[testcase]]
+name = "near_intersecting_diffraction_transmission_chain"
+description = "Randomly generated 3-interaction chain (diffraction-diffraction-transmission) with near-intersecting planes: at 200 iterations, plain BFGS is stuck at a path length error of 3.49e-03, while the image-method hybrid solver has converged exactly (error 0.0e+00)."
+tx = [0.28134301, -1.3002478, -0.38751242]
+rx = [9.0074883, -1.6684444, -0.68368733]
+object_origins = [[2.5, -1.5979249, 1.2789216], [5, 1.9349316, -0.4395588], [7.5, 0.72767389, -0.48613447]]
+object_vectors = [[[2.9855208, -0.14553548, 0.25589681], [0, 0, 0]], [[0.98045951, 0.49575245, -2.7915819], [0, 0, 0]], [[-0.65487635, -2.8712938, 0.57167047], [2.7773206, -0.79459226, -0.80939114]]]
+interaction_list = [1, 1, 2]
+expected_path = [[1.4049652, -1.5445452, 1.1850632], [4.5346241, 1.6996224, 0.88546723], [8.9831533, -1.6501204, -0.67515016]]

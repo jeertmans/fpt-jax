@@ -27,7 +27,8 @@ This library implements a single function, `trace_rays`, which traces rays under
 &nbsp;&nbsp;&nbsp;&nbsp;`object_origins: jax.Array, object_vectors: jax.Array, *,`<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`num_iters: int, unroll: int | bool = 1,`<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`num_iters_linesearch: int = 1, unroll_linesearch: int | bool = 1,`<br>
-&nbsp;&nbsp;&nbsp;&nbsp;`implicit_diff: bool = True) -> jax.Array:`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`implicit_diff: bool = True,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`use_image_method: bool = True) -> jax.Array:`<br>
 
 Compute the points of interaction of rays with objects using Fermat's principle.
 
@@ -58,6 +59,9 @@ This function accepts batched inputs, where the leading dimensions must be broad
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;as it does not require storing intermediate values from all iterations,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;but it may be less accurate if the optimization has not fully converged.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Moreover, implicit differentiation is not compatible with forward-mode autodiff in JAX.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`use_image_method`: If `True` (default), reflection/transmission interactions are snapped to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;their exact position (the image method) after each BFGS step, instead of being left to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;gradient descent alone; diffraction is unaffected.<br>
 
 **Returns:**<br>
 &nbsp;&nbsp;&nbsp;&nbsp;The points of interaction of shape `(..., num_interactions, 3)`.<br>
