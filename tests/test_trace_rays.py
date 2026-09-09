@@ -1,6 +1,6 @@
 """Tests for `fpt_jax.trace_rays`.
 
-Correctness is checked against two TOML-based benchmark datasets:
+Correctness is checked against TOML-based benchmark datasets:
 
 - `tests/data/simple_paths.toml`: small, hand-crafted scenarios (single
   reflection, diffraction, or transmission, cascaded diffractions, mixed
@@ -9,6 +9,12 @@ Correctness is checked against two TOML-based benchmark datasets:
   reflection/diffraction/transmission paths extracted from Sionna RT city
   scenes (see `tests/generate_sionna_dataset.py`, regenerated with
   `pytest --generate-sionna-dataset`).
+- `tests/data/complex_paths.toml`: randomly generated chains where
+  consecutive planar interactions sit close to their mutual plane
+  intersection -- hard for plain BFGS (`use_image_method=False`), which
+  reliably gets stuck at a measurably suboptimal path on these, unlike the
+  image-method hybrid solver (`use_image_method=True`); see
+  `test_complex_paths_hybrid_beats_fermat`.
 
 Each `[[testcase]]` entry gives `tx`, `rx`, `object_origins`, `object_vectors`,
 an expected `expected_path`, and an `interaction_list` (0 = reflection, 1 =
@@ -61,6 +67,7 @@ def load_testcases(path: Path) -> list[dict[str, Any]]:
 
 SIMPLE_CASES = load_testcases(DATA_DIR / "simple_paths.toml")
 SIONNA_CASES = load_testcases(DATA_DIR / "sionna_paths.toml")
+COMPLEX_CASES = load_testcases(DATA_DIR / "complex_paths.toml")
 
 
 def path_length(tx: jax.Array, rx: jax.Array, xyz: jax.Array) -> jax.Array:
@@ -116,17 +123,25 @@ def check_path(
     atol: float,
     grad_atol: float,
     plot_failures: Path | None,
+    use_image_method: bool = False,
 ) -> jax.Array:
     """Check `trace_rays` against `expected_path`, against physical interaction
     laws (equal angles), and that the solution is a stationary point of Fermat's
     principle. Returns the computed path."""
+    interaction_types = (
+        jnp.asarray(case["interaction_list"], dtype=jnp.int32)
+        if "interaction_list" in case
+        else None
+    )
     got = trace_rays(
         tx,
         rx,
         object_origins,
         object_vectors,
+        interaction_types=interaction_types,
         num_iters=num_iters,
         num_iters_linesearch=num_iters_linesearch,
+        use_image_method=use_image_method,
     )
     try:
         chex.assert_trees_all_close(got, expected_path, atol=atol)
@@ -177,10 +192,12 @@ def check_implicit_diff_matches_autodiff(
     object_origins: jax.Array,
     object_vectors: jax.Array,
     *,
+    interaction_types: jax.Array | None = None,
     num_iters: int,
     num_iters_linesearch: int,
     atol: float,
     subtests: SubTests,
+    use_image_method: bool = False,
 ) -> None:
     """Check that implicit differentiation and automatic differentiation
     through the optimization loop give the same gradient, for each input."""
@@ -197,9 +214,11 @@ def check_implicit_diff_matches_autodiff(
             rx,
             object_origins,
             object_vectors,
+            interaction_types=interaction_types,
             num_iters=num_iters,
             num_iters_linesearch=num_iters_linesearch,
             implicit_diff=implicit_diff,
+            use_image_method=use_image_method,
         )
         return path_length(tx, rx, xyz)
 
@@ -223,9 +242,11 @@ def check_padding_invariance(
     object_vectors: jax.Array,
     got: jax.Array,
     *,
+    interaction_types: jax.Array | None = None,
     num_iters: int,
     num_iters_linesearch: int,
     atol: float,
+    use_image_method: bool = False,
 ) -> None:
     """Check that padding every object with an extra all-zero vector -- as
     needed to combine, e.g., diffraction edges (num_dims=1) with reflecting
@@ -236,17 +257,23 @@ def check_padding_invariance(
         rx,
         object_origins,
         padded_vectors,
+        interaction_types=interaction_types,
         num_iters=num_iters,
         num_iters_linesearch=num_iters_linesearch,
+        use_image_method=use_image_method,
     )
     chex.assert_trees_all_close(got_padded, got, atol=atol)
 
 
+@pytest.mark.parametrize("use_image_method", [False, True], ids=["fermat", "hybrid"])
 @pytest.mark.parametrize(
     "case", SIMPLE_CASES, ids=[case["name"] for case in SIMPLE_CASES]
 )
 def test_simple_paths(
-    case: dict[str, Any], plot_failures: Path | None, subtests: SubTests
+    case: dict[str, Any],
+    plot_failures: Path | None,
+    subtests: SubTests,
+    use_image_method: bool,
 ) -> None:
     num_iters, num_iters_linesearch = 100, 50
     tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
@@ -263,6 +290,12 @@ def test_simple_paths(
         atol=1e-4,
         grad_atol=1e-4,
         plot_failures=plot_failures,
+        use_image_method=use_image_method,
+    )
+    interaction_types = (
+        jnp.asarray(case["interaction_list"], dtype=jnp.int32)
+        if "interaction_list" in case
+        else None
     )
     if supports_explicit_diff(object_vectors):
         check_implicit_diff_matches_autodiff(
@@ -270,10 +303,12 @@ def test_simple_paths(
             rx,
             object_origins,
             object_vectors,
+            interaction_types=interaction_types,
             num_iters=num_iters,
             num_iters_linesearch=num_iters_linesearch,
             atol=1e-4,
             subtests=subtests,
+            use_image_method=use_image_method,
         )
     check_padding_invariance(
         tx,
@@ -281,20 +316,32 @@ def test_simple_paths(
         object_origins,
         object_vectors,
         got,
+        interaction_types=interaction_types,
         num_iters=num_iters,
         num_iters_linesearch=num_iters_linesearch,
         atol=1e-5,
+        use_image_method=use_image_method,
     )
 
 
+@pytest.mark.parametrize("use_image_method", [False, True], ids=["fermat", "hybrid"])
 @pytest.mark.parametrize(
     "case", SIONNA_CASES, ids=[case["name"] for case in SIONNA_CASES]
 )
 def test_sionna_paths(
-    case: dict[str, Any], plot_failures: Path | None, subtests: SubTests
+    case: dict[str, Any],
+    plot_failures: Path | None,
+    subtests: SubTests,
+    use_image_method: bool,
 ) -> None:
-    num_iters, num_iters_linesearch = 300, 150
+    num_iters = 300
+    num_iters_linesearch = 150
     tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
+    interaction_types = (
+        jnp.asarray(case["interaction_list"], dtype=jnp.int32)
+        if "interaction_list" in case
+        else None
+    )
 
     # Looser tolerances: ground truth comes from Sionna RT (a different,
     # also single-precision ray tracer), on a much larger (city-scale) scene,
@@ -311,6 +358,7 @@ def test_sionna_paths(
         atol=5e-3,
         grad_atol=5e-3,
         plot_failures=plot_failures,
+        use_image_method=use_image_method,
     )
     if supports_explicit_diff(object_vectors):
         check_implicit_diff_matches_autodiff(
@@ -318,11 +366,82 @@ def test_sionna_paths(
             rx,
             object_origins,
             object_vectors,
+            interaction_types=interaction_types,
             num_iters=num_iters,
             num_iters_linesearch=num_iters_linesearch,
             atol=1e-3,
             subtests=subtests,
+            use_image_method=use_image_method,
         )
+
+
+@pytest.mark.parametrize(
+    "case", COMPLEX_CASES, ids=[case["name"] for case in COMPLEX_CASES]
+)
+def test_complex_paths_hybrid_beats_fermat(case: dict[str, Any]) -> None:
+    """On these near-intersecting-plane geometries (see `complex_paths.toml`),
+    plain BFGS reliably gets stuck at a measurably suboptimal path length,
+    while the image-method hybrid solver converges to the (near-)exact
+    optimum given by `expected_path`. Compares total path *length* rather
+    than interaction-point coordinates, since some of these geometries have
+    a non-unique optimal argmin (see `scripts/compare_solvers.py`'s
+    `length_error`/`compute_reference` for why coordinate error would be
+    misleading here) -- length is still the well-defined, unique minimized
+    objective value regardless.
+    """
+    num_iters, num_iters_linesearch = 200, 150
+    tx, rx, object_origins, object_vectors, expected_path = case_arrays(case)
+    expected_length = path_length(tx, rx, expected_path)
+
+    got_fermat = trace_rays(
+        tx,
+        rx,
+        object_origins,
+        object_vectors,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+        use_image_method=False,
+    )
+    interaction_types = (
+        jnp.asarray(case["interaction_list"], dtype=jnp.int32)
+        if "interaction_list" in case
+        else None
+    )
+    got_hybrid = trace_rays(
+        tx,
+        rx,
+        object_origins,
+        object_vectors,
+        interaction_types=interaction_types,
+        num_iters=num_iters,
+        num_iters_linesearch=num_iters_linesearch,
+        use_image_method=True,
+    )
+
+    fermat_error = abs(float(path_length(tx, rx, got_fermat) - expected_length))
+    hybrid_error = abs(float(path_length(tx, rx, got_hybrid) - expected_length))
+
+    assert hybrid_error < 1e-4, (
+        f"hybrid did not converge: length error {hybrid_error:.3e}"
+    )
+    assert fermat_error > 5e-4, (
+        f"fermat unexpectedly converged: length error {fermat_error:.3e}"
+    )
+    assert hybrid_error < fermat_error, (
+        f"hybrid ({hybrid_error:.3e}) did not beat fermat ({fermat_error:.3e})"
+    )
+
+    # The hybrid solution should still be a genuine, physically valid path,
+    # not just a shorter one.
+    assert_path_valid(
+        tx,
+        rx,
+        got_hybrid,
+        object_origins,
+        object_vectors,
+        case["interaction_list"],
+        atol=1e-3,
+    )
 
 
 def test_grad_trace_rays_implicit_diff_rejects_forward_mode() -> None:
@@ -390,7 +509,7 @@ def test_trace_rays_broadcasting_shapes(
     assert got.shape[:-1] == expected_shape
 
 
-ALL_CASES = SIMPLE_CASES + SIONNA_CASES
+ALL_CASES = SIMPLE_CASES + SIONNA_CASES + COMPLEX_CASES
 
 
 @pytest.mark.parametrize("case", ALL_CASES, ids=[case["name"] for case in ALL_CASES])

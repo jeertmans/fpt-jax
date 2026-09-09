@@ -24,16 +24,22 @@ This library implements a single function, `trace_rays`, which traces rays under
 
 **trace_rays**<br>
 &nbsp;&nbsp;&nbsp;`(tx: jax.Array, rx: jax.Array,`<br>
-&nbsp;&nbsp;&nbsp;&nbsp;`object_origins: jax.Array, object_vectors: jax.Array, *,`<br>
-&nbsp;&nbsp;&nbsp;&nbsp;`num_iters: int, unroll: int | bool = 1,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`object_origins: jax.Array, object_vectors: jax.Array,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`interaction_types: jax.Array | None = None, *,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`num_iters: int | None = None, max_num_iters: int | None = None,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`rtol: float | None = None, atol: float | None = None,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`unroll: int | bool = 1,`<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`num_iters_linesearch: int = 1, unroll_linesearch: int | bool = 1,`<br>
-&nbsp;&nbsp;&nbsp;&nbsp;`implicit_diff: bool = True) -> jax.Array:`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`implicit_diff: bool = True,`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`use_image_method: bool = True) -> jax.Array:`<br>
 
 Compute the points of interaction of rays with objects using Fermat's principle.
 
-Each ray is obtained by minimizing the total travel distance from transmitter to receiver,
-using a quasi-Newton optimization algorithm (BFGS). At each iteration, a line search is performed
-to find the optimal step size along the descent direction.
+Each ray is obtained by minimizing the total travel distance from transmitter to receiver
+using a quasi-Newton optimization algorithm (BFGS). When `use_image_method=True` (default),
+intermediate specular reflections and refractions/transmissions are solved in closed form
+via the exact image method, drastically reducing the optimization dimension to only the
+diffraction edge parameters.
 
 This function accepts batched inputs, where the leading dimensions must be broadcast-compatible.
 
@@ -42,9 +48,18 @@ This function accepts batched inputs, where the leading dimensions must be broad
 &nbsp;&nbsp;&nbsp;&nbsp;`rx`: Receiver positions of shape `(..., 3)`.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`object_origins`: Origins of the objects of shape `(..., num_interactions, 3)`.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`object_vectors`: Vectors defining the objects of shape `(..., num_interactions, num_dims, 3)`.<br>
-&nbsp;&nbsp;&nbsp;&nbsp;`num_iters`: Number of iterations for the optimization algorithm.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`interaction_types`: Optional interaction types of shape `(..., num_interactions)`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(0 = reflection, 1 = diffraction, 2 = transmission). If omitted, planar surfaces<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;are treated as specular reflections.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`num_iters`: Fixed number of iterations for the optimization algorithm.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Mutually exclusive with `max_num_iters`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`max_num_iters`: Maximum number of iterations for adaptive optimization using a while loop<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;with Cauchy termination. Mutually exclusive with `num_iters`. When specified, `rtol`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and `atol` are required, and `unroll` must be 1 or `False`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`rtol`: Relative tolerance for the Cauchy termination criterion. Required when `max_num_iters` is set.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`atol`: Absolute tolerance for the Cauchy termination criterion. Required when `max_num_iters` is set.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`unroll`: If an integer, the number of optimization iterations to unroll in the JAX [`scan`](https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html).<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `True`, unroll all iterations. If `False`, do not unroll.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `True`, unroll all iterations. If `False`, do not unroll. Must be 1 or `False` if `max_num_iters` is set.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`num_iters_linesearch`: Number of iterations for the line search fixed-point iteration.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;`unroll_linesearch`: If an integer, the number of fixed-point iterations to unroll in the JAX [`scan`](https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html).<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If `True`, unroll all iterations. If `False`, do not unroll.<br>
@@ -58,6 +73,9 @@ This function accepts batched inputs, where the leading dimensions must be broad
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;as it does not require storing intermediate values from all iterations,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;but it may be less accurate if the optimization has not fully converged.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Moreover, implicit differentiation is not compatible with forward-mode autodiff in JAX.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`use_image_method`: If `True` (default), specular planar interactions are solved exactly in closed<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;form using the image method, reducing optimization to only diffracting edges. If `False`,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;runs standard BFGS over all coordinates simultaneously.<br>
 
 **Returns:**<br>
 &nbsp;&nbsp;&nbsp;&nbsp;The points of interaction of shape `(..., num_interactions, 3)`.<br>
