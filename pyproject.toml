@@ -75,6 +75,14 @@ filename = "src/fpt_jax/__version__.py"
 replace = '__version__ = "{new_version}"'
 search = '__version__ = "{current_version}"'
 
+[[tool.bumpversion.files]]
+filename = "CHANGELOG.md"
+replace = """
+## [Unreleased]
+
+## [{new_version}] - {now:%Y-%m-%d}"""
+search = "## [Unreleased]"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/fpt_jax"]
 
