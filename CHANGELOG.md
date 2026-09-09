@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-09
+
 ### Added
 
 - Image method acceleration in `trace_rays` (`use_image_method=True`, enabled by default), which solves planar reflections and transmissions in closed form and restricts numerical optimization to diffraction edges.
