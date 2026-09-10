@@ -96,14 +96,15 @@ If you want to report a bug in this library or the underlying algorithm, please 
 If you use this library in your research, please cite our paper:
 
 ```bibtex
-@misc{eertmans2025fpt,
-  title         = {Fast, Differentiable, GPU-Accelerated Ray Tracing for Multiple Diffraction and Reflection Paths},
-  author        = {Jérome Eertmans and Sophie Lequeu and Benoît Legat and Laurent Jacques and Claude Oestges},
-  year          = 2025,
-  url           = {https://arxiv.org/abs/2510.16172},
-  eprint        = {2510.16172},
-  archiveprefix = {arXiv},
-  primaryclass  = {eess.SP}
+@inproceedings{eertmans2026fpt,
+  author    = {Eertmans, Jérome and Lequeu, Sophie and Legat, Benoît and Jacques, Laurent and Oestges, Claude},
+  title     = {Fast, Differentiable, GPU-Accelerated Ray Tracing for Multiple Diffraction and Reflection Paths},
+  year      = {2026},
+  booktitle = {2026 20th European Conference on Antennas and Propagation (EuCAP)},
+  volume    = {},
+  number    = {},
+  pages     = {1--5},
+  doi       = {10.23919/EuCAP68105.2026.11612249},
 }
 ```
 
